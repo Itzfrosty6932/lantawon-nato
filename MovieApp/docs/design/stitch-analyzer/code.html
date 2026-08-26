@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumina Stream</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-tertiary-container": "#4b3e00",
+                "primary-fixed-dim": "#ffb4aa",
+                "tertiary": "#e9c400",
+                "on-primary-container": "#ffffff",
+                "on-tertiary": "#3a3000",
+                "on-secondary": "#313030",
+                "on-surface-variant": "#e7bdb7",
+                "secondary-fixed-dim": "#c9c6c5",
+                "primary": "#ff3b30",
+                "tertiary-container": "#c8a900",
+                "secondary-container": "#484646",
+                "tertiary-fixed-dim": "#e9c400",
+                "primary-container": "#ff3b30",
+                "on-primary-fixed-variant": "#930005",
+                "tertiary-fixed": "#ffe16d",
+                "on-secondary-container": "#b8b4b4",
+                "surface-dim": "#131313",
+                "on-primary": "#ffffff",
+                "on-background": "#e5e2e1",
+                "background": "#0a0a0a",
+                "error-container": "#93000a",
+                "secondary": "#c9c6c5",
+                "error": "#ffb4ab",
+                "inverse-on-surface": "#313030",
+                "inverse-primary": "#c0000a",
+                "on-secondary-fixed-variant": "#484646",
+                "surface-glow": "#ff3b301a",
+                "surface-container": "#201f1f",
+                "on-error": "#690005",
+                "surface": "#131313",
+                "on-primary-fixed": "#410001",
+                "surface-container-highest": "#353534",
+                "surface-tint": "#ffb4aa",
+                "surface-container-high": "#2a2a2a",
+                "surface-variant": "#353534",
+                "on-tertiary-fixed-variant": "#544600",
+                "primary-fixed": "#ffdad5",
+                "rating-gold": "#FFD700",
+                "secondary-fixed": "#e6e1e1",
+                "on-error-container": "#ffdad6",
+                "outline": "#ad8883",
+                "on-secondary-fixed": "#1c1b1b",
+                "surface-bright": "#3a3939",
+                "surface-container-low": "#1c1b1b",
+                "on-tertiary-fixed": "#221b00",
+                "glass-border": "#ffffff1a",
+                "surface-container-lowest": "#0e0e0e",
+                "inverse-surface": "#e5e2e1",
+                "on-surface": "#e5e2e1",
+                "outline-variant": "#5d3f3b"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "z-mid": "0px",
+                "stack-gap": "16px",
+                "unit": "8px",
+                "margin-page": "40px",
+                "z-far": "-20px",
+                "gutter": "24px",
+                "z-near": "20px"
+        },
+        "fontFamily": {
+                "headline-lg": [
+                        "Plus Jakarta Sans"
+                ],
+                "display-lg": [
+                        "Plus Jakarta Sans"
+                ],
+                "label-sm": [
+                        "Plus Jakarta Sans"
+                ],
+                "body-md": [
+                        "Plus Jakarta Sans"
+                ],
+                "headline-lg-mobile": [
+                        "Plus Jakarta Sans"
+                ]
+        },
+        "fontSize": {
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "display-lg": [
+                        "48px",
+                        {
+                                "lineHeight": "56px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-sm": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        .glass-panel {
+            background: rgba(20, 20, 20, 0.6);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 59, 48, 0.05);
+        }
+        
+        .glass-card {
+            background: rgba(25, 25, 25, 0.5);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .glass-card:hover {
+            background: rgba(35, 35, 35, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(255, 59, 48, 0.15);
+        }
+
+        .spatial-shadow {
+            box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+<body class="bg-[#0a0a0a] text-on-background font-body-md overflow-x-hidden min-h-screen relative selection:bg-primary selection:text-white">
+<!-- Ambient Background -->
+<div class="fixed inset-0 z-[-1] pointer-events-none bg-[#0a0a0a]">
+<div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-[#0a0a0a] to-[#0a0a0a]"></div>
+<div class="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent"></div>
+</div>
+<!-- SideNavBar -->
+<nav class="rounded-full w-20 fixed left-8 top-1/2 -translate-y-1/2 h-[716px] glass-panel flex flex-col items-center justify-between py-10 z-50 hidden md:flex">
+<div class="flex flex-col items-center gap-8 w-full">
+<div class="flex flex-col gap-6 w-full items-center justify-center">
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-primary scale-125 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">home</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">explore</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">video_library</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">star</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">favorite</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">hourglass_empty</span>
+</a>
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">settings</span>
+</a>
+</div>
+</div>
+<div class="flex flex-col items-center gap-6 w-full">
+<a class="w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant opacity-60 hover:scale-110 hover:opacity-100 transition-transform" href="#">
+<span class="material-symbols-outlined">info</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar -->
+<div class="fixed top-0 left-0 w-full z-40 md:px-0">
+<header class="rounded-full mt-4 md:ml-32 max-w-[1600px] glass-panel flex justify-between items-center px-8 py-2 w-auto z-50 h-16 mr-6 md:mr-8">
+<div class="flex items-center gap-8">
+<div class="font-display-lg text-display-lg text-primary text-xl hidden md:block">Lantawon <span class="text-white">Lang</span></div>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all font-body-md text-body-md px-3 py-1 rounded-full" href="#">Movies &amp; Series</a>
+<a class="text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all font-body-md text-body-md px-3 py-1 rounded-full" href="#">Sports</a>
+<a class="text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all font-body-md text-body-md px-3 py-1 rounded-full flex items-center gap-1" href="#">Adults <span class="material-symbols-outlined text-[16px]">expand_more</span></a>
+<a class="text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all font-body-md text-body-md px-3 py-1 rounded-full" href="#">TV Channels</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all">
+<span class="material-symbols-outlined">search</span>
+</button>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/10 hover:text-primary transition-all relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full"></span>
+</button>
+<div class="flex items-center gap-3 pl-4 border-l border-white/10 cursor-pointer hover:opacity-80 transition-opacity">
+<img class="w-8 h-8 rounded-full border border-white/20 object-cover" data-alt="Portrait of a smiling user, professional avatar, lit with a subtle soft rim light on a dark background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCd5I060kELHVLjxkHCph-yi8pQ--NhJAXFEqFI9sjF7zRFei3JW1Kuau8Y9_BHmx1NbTeppXEAABUWYp0ycdHhS53OiOq6L4aSukhpT8d8czvx_HOXOMixgNKlhRvyoTgTylyxhwwqlkCCFPcO00Kkw1bMh8NrRcqZpNZLX78ULH00_FeCI23xcHwNjYePy0uAgEUwSjHT9l1ARuc0CYjlOFyn_GR9s1RmGvCB_KIdM84mOp6UJ5_SoQ"/>
+</div>
+</div>
+</header>
+</div>
+<!-- Main Canvas -->
+<main class="ml-0 md:ml-32 pt-28 pb-24 px-6 max-w-[1600px] mx-auto min-h-screen flex flex-col gap-12 z-10 relative md:px-8">
+<!-- Spatial Grid Layout (Hero + Sidebar) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Hero Section -->
+<div class="lg:col-span-8 glass-panel rounded-3xl overflow-hidden relative min-h-[500px] lg:min-h-[600px] flex flex-col justify-end p-10 group">
+<div class="absolute inset-0 bg-cover bg-center z-0 transition-transform duration-[2s] group-hover:scale-105" data-alt="A cinematic, breathtaking wide shot of an astronaut floating near a massive, glowing celestial body in deep space. Epic sci-fi mood, rich deep cosmic blacks contrasted with brilliant glowing teal and cyan energy. Highly detailed, evoking a sense of wonder and isolation." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCyKOCek7FBith92ysetaMou9KZ4xAFebnoqCVk7qCguGPJxND534C-2T4uHvy-_CK5s9VPR8vcNHG0NF0n_gIbiiaUULky6btOaPKnTXHt5o_0tzoEHDjr0uWtm3V0mMluulm0XvlXFnSQgXhPjVIQMCa_5Wvf7iOWN4bzhyr7E9laYVbzkjrCfsZikrt-5gkpI2naF7salC45J2kJ1rLbpKE9q3K9dgbPu4VAV_Ug78hGyAQDWHRsfw')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/95 via-[#0a0a0a]/40 to-transparent z-10"></div>
+<div class="relative z-20 max-w-2xl flex flex-col gap-4 items-start">
+<h1 class="font-display-lg text-display-lg text-white">The Odyssey</h1>
+<div class="flex items-center gap-3 text-sm text-on-surface-variant font-label-sm">
+<span class="px-2 py-0.5 rounded border border-white/20 bg-white/5">2020</span>
+<span class="px-2 py-0.5 rounded border border-white/20">18+</span>
+<span class="">Season 4</span>
+<span class="">|</span>
+<span class="">Sci-Fi</span>
+</div>
+<p class="text-on-surface text-body-md mt-2 max-w-xl opacity-80 leading-relaxed">
+                        A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival. The journey pushes them to the absolute limits of human endurance and love.
+                    </p>
+<div class="flex items-center gap-4 mt-6">
+<button class="bg-primary text-white font-label-sm px-8 py-3 rounded-full flex items-center gap-2 hover:bg-primary/90 transition-colors shadow-[0_0_20px_rgba(255,59,48,0.4)]">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                            Watch Now
+                        </button>
+<button class="w-12 h-12 rounded-full border border-white/20 flex items-center justify-center text-white hover:bg-white/10 transition-colors backdrop-blur-sm">
+<span class="material-symbols-outlined">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Continue Watching Sidebar -->
+<div class="lg:col-span-4 flex flex-col gap-4">
+<h2 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-white">Continue Watching</h2>
+<div class="flex flex-col gap-4">
+<!-- Item 1 -->
+<div class="glass-card rounded-2xl overflow-hidden relative h-40 group cursor-pointer">
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A tense scene showing high school students barricading a classroom door against a horde of zombies in a Korean high school setting. Gritty, dramatic lighting, muted colors with splashes of red." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAO4sCBmRZLXtJskz39bHQ5KJDqfUpPP2IboN75hTza6UYP8Cc8kPQeJmnwlfiRl9Ljn6-QVszdXST_kfg7FkPlZ_FQbDlSkiUyAjDjV8mfB3MlHbFEfqp-2STDe7yB7Q-m7EExylSJAItvEKSAqcRrvPhg4QQvcVcG_v32jNZ3JgW5t4Th5XvzFZtxlgrEe2aeQ0aI92LZQygDZVg0vi3dxvfILTaUYENPTKl7-fDm-A_j6zXH8bKg7Q')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-xs font-label-sm text-white">48:21</div>
+<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+</div>
+<div class="absolute bottom-4 left-4 right-4 z-10 flex gap-3 items-center">
+<div class="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center border border-white/20 flex-shrink-0">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="text-white font-label-sm truncate">All of Us Are Dead</h3>
+<p class="text-on-surface-variant text-xs truncate">1 week ago</p>
+</div>
+</div>
+<!-- Progress Bar -->
+<div class="absolute bottom-0 left-0 w-full h-1 bg-white/20">
+<div class="h-full bg-primary w-[45%] shadow-[0_0_10px_rgba(255,59,48,0.5)]"></div>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="glass-card rounded-2xl overflow-hidden relative h-40 group cursor-pointer">
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A warm, nostalgic scene of two young adults sitting closely together in a sun-dappled field during summer. Soft, romantic lighting, bright and airy color palette." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuC8JVPtso9Jgqw7yCW6zOucIohSkqnhdyUG7pFHnKt6n1r_z7Z5e0EN0SJ5ELHWPPkXvvj3PyDSByaHN-8ZKLSeOHp9arc9TPpZuuSMfYU32Q65UAvgm8tt6N3DDzx_cq5DNBwzO1LxewgaqLf2IJBZNsQ6ulIiygFRKrSYEjqWM1iGOHWPhrh-X8xsXF_H48sxXbWnwsvTxrMnwSNkYmpFDAmOS2cmSS1qIHbk88GDMI0tpL6eIoeYCA')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-xs font-label-sm text-white">48:21</div>
+<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+</div>
+<div class="absolute bottom-4 left-4 right-4 z-10 flex gap-3 items-center">
+<div class="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center border border-white/20 flex-shrink-0">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="text-white font-label-sm truncate">Summer Striker</h3>
+<p class="text-on-surface-variant text-xs truncate">2 week ago</p>
+</div>
+</div>
+<!-- Progress Bar -->
+<div class="absolute bottom-0 left-0 w-full h-1 bg-white/20">
+<div class="h-full bg-primary w-[75%] shadow-[0_0_10px_rgba(255,59,48,0.5)]"></div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="glass-card rounded-2xl overflow-hidden relative h-40 group cursor-pointer">
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A moody, elegant poster for 'The Glory'. A woman's profile cast in deep shadow against a twilight sky." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCYe8tA-xg3N8rqV9AAwz0yozKKO9g8KRUDxglEyofTBPZ2-FIHASJNYHrNuxOpBKGPU5C_t0BmhExUkgUwrmeOuh20XfDOl9bQqm2cSdrhtqIvV9sFM7kNR3Pyq1uOJ9Wtcs4iEYNiKDERw-5tIL3FsqOocdX-nSKjL0859eNG0WRYNK8PPT3a4xacvcYD2_IuP5tgCOeUQBwdRWy0ZN5UHp43QKxn0I4ht5-0XJWdCNlZ3XvJblzPoQ')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-xs font-label-sm text-white">48:21</div>
+<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+</div>
+<div class="absolute bottom-4 left-4 right-4 z-10 flex gap-3 items-center">
+<div class="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center border border-white/20 flex-shrink-0">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="text-white font-label-sm truncate">The Glory</h3>
+<p class="text-on-surface-variant text-xs truncate">1 week ago</p>
+</div>
+</div>
+<!-- Progress Bar -->
+<div class="absolute bottom-0 left-0 w-full h-1 bg-white/20">
+<div class="h-full bg-primary w-[20%] shadow-[0_0_10px_rgba(255,59,48,0.5)]"></div>
+</div>
+</div></div>
+</div>
+</div>
+<!-- Trending Section -->
+<div class="flex flex-col gap-6 mt-8">
+<h2 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-white">Trending</h2>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<!-- Trending Card 1 -->
+<div class="glass-card rounded-2xl aspect-[3/4] relative overflow-hidden group cursor-pointer"><div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A gritty, dramatic movie poster for 'Luther: The Fallen Sun'. Featuring a detective in a heavy coat walking away across a bleak, wintry landscape. Moody, desaturated colors." style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBVWVPQFsxJrupWNS1KXhhzJcRnBpfmDt_6uUQ1zvaEDH1ffVRFkPBeQKCAktDt8NLcbHqtmaYf8UVs4HFVXWGcag3b_PwSlHAZz4Pbfg7r1OpOS8m5SU8x_tVYbAt-qpZJF8_NDnQJ1P6NXKeugZctpTLNdJTiop-GSE_HhMKVQG1R_QcmjCOyDpfOmbPKuJKCIyuN8p7TxbW4IGNNv4AFHZhwgrNqUa-pUQ6LWTuJMi0jFZaRb1se7w");'></div><div class="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent"></div><div class="absolute top-3 left-3 right-3 flex justify-between items-start z-10"><span class="bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">Movie</span><div class="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-white text-xs font-bold"><span class="material-symbols-outlined text-[14px] text-rating-gold" style="font-variation-settings: 'FILL' 1;">star</span>8.1</div></div><div class="absolute inset-0 flex flex-col justify-end p-5 translate-y-4 group-hover:translate-y-0 transition-transform"><h3 class="text-white font-label-sm text-lg font-bold">Luther: The Fallen Sun</h3><div class="flex items-center justify-between mt-1"><p class="text-primary text-xs">Crime • Thriller</p><p class="text-on-surface-variant text-xs px-2 py-0.5 rounded border border-white/20 bg-white/5">2023</p></div></div></div>
+<!-- Trending Card 2 -->
+<div class="glass-card rounded-2xl aspect-[3/4] relative overflow-hidden group cursor-pointer"><div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A colorful, chaotic movie poster for 'Glass Onion'. A vibrant ensemble cast of quirky characters lounging around a luxury pool deck in Greece. Bright, sunny, highly stylized and saturated colors." style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuB4DekrZz9v6qI7OWTyRMZ4auiIRcYOqM508epUghBU7iY1hZA6jxbhlp3EWax9LnEEC2p0wJe81UbT6-2sIlsS1w3HTHK8eTQqmaNefq8a3VQbvnvM6Q2Zsry6gbqWFIk9C7n1FL8rRO6pWUOxoIhno0ptYx86_cE2Bp58HuIIvcPZeLAyoh78ehMWPfQdycE7mMft5WAdtazUmyQPUPJfXUt3Np0nyRUxUdcYzMYSWZ_T1dr3oKDBmQ");'></div><div class="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent"></div><div class="absolute top-3 left-3 right-3 flex justify-between items-start z-10"><span class="bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">Movie</span><div class="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-white text-xs font-bold"><span class="material-symbols-outlined text-[14px] text-rating-gold" style="font-variation-settings: 'FILL' 1;">star</span>7.2</div></div><div class="absolute inset-0 flex flex-col justify-end p-5 translate-y-4 group-hover:translate-y-0 transition-transform"><h3 class="text-white font-label-sm text-lg font-bold">Glass Onion</h3><div class="flex items-center justify-between mt-1"><p class="text-primary text-xs">Mystery • Comedy</p><p class="text-on-surface-variant text-xs px-2 py-0.5 rounded border border-white/20 bg-white/5">2022</p></div></div></div>
+<!-- Trending Card 3 -->
+<div class="glass-card rounded-2xl aspect-[3/4] relative overflow-hidden group cursor-pointer"><div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A fractured, unsettling poster for 'Black Mirror'. Shattered glass reflecting a dark, dystopian sky and a distorted smiling emoji. Monochromatic cool blues and blacks, conveying technological dread." style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCHH_nVeBKI1r2UxuMhYKIwkj_xOWQPGSHmuhHSrvvy6plrTxpb_NzNqpf103BaQC2Wte5q69tsjkM3Y1UoJ9nWnX0R3OaLzK8FHNvC6JnTRlPjX_6a-gNFKjnWJGuKBxDWjUqz1D8Y04eJJBrci6CEzquJLs1woE4Bl9HL0-RB-TMtueGv9BT9CMOKmMPinDZjrkj-SruiTbQzTUBvLwtxv0pBBtcHZwNQM_OOgBzYqsUP4lRQZ5cHUQ");'></div><div class="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent"></div><div class="absolute top-3 left-3 right-3 flex justify-between items-start z-10"><span class="bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">TV Series</span><div class="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-white text-xs font-bold"><span class="material-symbols-outlined text-[14px] text-rating-gold" style="font-variation-settings: 'FILL' 1;">star</span>8.8</div></div><div class="absolute inset-0 flex flex-col justify-end p-5 translate-y-4 group-hover:translate-y-0 transition-transform"><h3 class="text-white font-label-sm text-lg font-bold">Black Mirror</h3><div class="flex items-center justify-between mt-1"><p class="text-primary text-xs">Sci-Fi • Drama</p><p class="text-on-surface-variant text-xs px-2 py-0.5 rounded border border-white/20 bg-white/5">2023</p></div></div></div>
+<!-- Trending Card 4 -->
+<div class="glass-card rounded-2xl aspect-[3/4] relative overflow-hidden group cursor-pointer"><div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105" data-alt="A moody, elegant poster for 'The Glory'. A woman's profile cast in deep shadow against a twilight sky, conveying a sense of cold revenge. Dark purples, blacks, and subtle silver typography." style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCYe8tA-xg3N8rqV9AAwz0yozKKO9g8KRUDxglEyofTBPZ2-FIHASJNYHrNuxOpBKGPU5C_t0BmhExUkgUwrmeOuh20XfDOl9bQqm2cSdrhtqIvV9sFM7kNR3Pyq1uOJ9Wtcs4iEYNiKDERw-5tIL3FsqOocdX-nSKjL0859eNG0WRYNK8PPT3a4xacvcYD2_IuP5tgCOeUQBwdRWy0ZN5UHp43QKxn0I4ht5-0XJWdCNlZ3XvJblzPoQ");'></div><div class="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent"></div><div class="absolute top-3 left-3 right-3 flex justify-between items-start z-10"><span class="bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">TV Series</span><div class="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-white text-xs font-bold"><span class="material-symbols-outlined text-[14px] text-rating-gold" style="font-variation-settings: 'FILL' 1;">star</span>8.1</div></div><div class="absolute inset-0 flex flex-col justify-end p-5 translate-y-4 group-hover:translate-y-0 transition-transform"><h3 class="text-white font-label-sm text-lg font-bold">The Glory</h3><div class="flex items-center justify-between mt-1"><p class="text-primary text-xs">Drama • Thriller</p><p class="text-on-surface-variant text-xs px-2 py-0.5 rounded border border-white/20 bg-white/5">2022</p></div></div></div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation (Mobile Only Fallback) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full glass-panel z-50 flex justify-around items-center py-4 px-2 pb-safe border-t border-white/10">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="text-[10px] font-label-sm">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant opacity-60" href="#">
+<span class="material-symbols-outlined text-[24px]">explore</span>
+<span class="text-[10px] font-label-sm">Explore</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant opacity-60" href="#">
+<span class="material-symbols-outlined text-[24px]">video_library</span>
+<span class="text-[10px] font-label-sm">Library</span>
+</a>
+</nav>
+</body></html>
