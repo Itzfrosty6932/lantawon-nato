@@ -120,10 +120,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isLoggedIn: true,
         });
 
-        // Check single device status immediately on session load
+        // Register / heartbeat this device first so an inactive previous device doesn't lock out this active session
+        await registerDevice();
+
+        // Check single device status (only fails if another device is genuinely active in the last 90s)
         const deviceStatus = await checkCurrentDeviceActive();
         if (!deviceStatus.isActive && deviceStatus.reason === "device_superseded") {
-          console.warn("[Auth] Device was superseded by another login while away.");
+          console.warn("[Auth] Device was superseded by another active streaming device.");
           audioFX.playWarning();
           if (supabase) await supabase.auth.signOut().catch(() => {});
           localStorage.removeItem("lantawon_auth_session");
@@ -134,9 +137,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           return;
         }
-
-        // Register / heartbeat this device
-        await registerDevice();
       } catch (e) {
         console.warn("[AuthContext Init Warning]", e);
       } finally {
@@ -154,11 +154,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true;
 
     const verifyActiveSession = async () => {
+      // Only verify and heartbeat when the tab is currently visible/active to prevent background tabs fighting
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
       const { isActive, reason } = await checkCurrentDeviceActive();
       if (!isMounted) return;
 
       if (!isActive && reason === "device_superseded") {
-        console.warn("[Auth] Current device has been superseded by a newer login.");
+        console.warn("[Auth] Current device has been superseded by a newer active login.");
         audioFX.playWarning();
         await signOut();
         if (typeof window !== "undefined") {
@@ -167,13 +170,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Periodic check every 12 seconds
-    const interval = setInterval(verifyActiveSession, 12000);
+    // Periodic heartbeat check every 15 seconds while visible
+    const interval = setInterval(verifyActiveSession, 15000);
 
-    // Immediate check when tab gains focus
-    const handleVisibilityChange = () => {
+    // Immediate check & claim when tab gains focus
+    const handleVisibilityChange = async () => {
       if (document.visibilityState === "visible") {
-        verifyActiveSession();
+        await verifyActiveSession();
       }
     };
 

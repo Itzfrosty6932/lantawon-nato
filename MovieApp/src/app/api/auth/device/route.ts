@@ -149,12 +149,41 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ isActive: true });
     }
 
-    // If superseded by another device login
+    // Check if another device is genuinely active right now (sent a heartbeat within last 90s)
+    const activeCutoffIso = new Date(Date.now() - 90 * 1000).toISOString();
+    const { data: activeOtherDevice } = await admin
+      .from("user_devices")
+      .select("id, device_name, last_active_at")
+      .eq("user_id", identity.userId)
+      .eq("is_active", true)
+      .gt("last_active_at", activeCutoffIso)
+      .neq("device_fingerprint", fingerprint)
+      .limit(1)
+      .maybeSingle();
+
+    // If this device was previously deactivated
     if (device.is_active === false || device.blocked_at !== null) {
-      return NextResponse.json({
-        isActive: false,
-        reason: "device_superseded",
-      });
+      if (activeOtherDevice) {
+        // Another device is actively using the account right this second
+        return NextResponse.json({
+          isActive: false,
+          reason: "device_superseded",
+          activeDeviceName: activeOtherDevice.device_name || "Another Device",
+        });
+      }
+
+      // The other device (e.g. phone) is inactive, locked, or closed!
+      // Seamlessly claim active status for this device without kicking the user.
+      await admin
+        .from("user_devices")
+        .update({
+          is_active: true,
+          blocked_at: null,
+          last_active_at: new Date().toISOString(),
+        })
+        .eq("id", device.id);
+
+      return NextResponse.json({ isActive: true, reactivated: true });
     }
 
     // Touch last_active_at as heartbeat
