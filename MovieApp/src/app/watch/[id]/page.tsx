@@ -888,8 +888,13 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     setIsFrameLoading(false);
   }, []);
 
-  // Volume Boost State: 100%, 150%, 200%, 300%
+  // Volume Boost State: 100% to 300% (Studio Mixer)
   const [volumeBoost, setVolumeBoost] = useState<number>(100);
+  const handleVolumeBoostChange = useCallback((boost: number) => {
+    const clamped = Math.max(100, Math.min(300, Math.round(boost)));
+    setVolumeBoost(clamped);
+  }, []);
+
   const handleCycleVolumeBoost = useCallback(() => {
     setVolumeBoost((prev) => {
       const next = prev === 100 ? 150 : prev === 150 ? 200 : prev === 200 ? 300 : 100;
@@ -955,6 +960,7 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
             showToast={showToast}
             volumeBoost={volumeBoost}
             onCycleVolumeBoost={handleCycleVolumeBoost}
+            onVolumeBoostChange={handleVolumeBoostChange}
             onBack={() => setIsPlaying(false)}
           />
 

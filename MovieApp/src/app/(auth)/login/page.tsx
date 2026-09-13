@@ -122,12 +122,12 @@ export default function LoginPage() {
 
         {/* Device Concurrency / Superseded Notice */}
         {searchParams.get("reason") === "device_superseded" && (
-          <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold animate-in fade-in flex items-start gap-2">
-            <span className="text-base shrink-0">⚠️</span>
-            <div>
-              <p className="font-bold text-white mb-0.5">Logged out from another device</p>
-              <p className="text-amber-300/90 text-[11px] leading-relaxed">
-                Your account was opened on another device. To protect your streaming pass, only 1 active device session is permitted at a time.
+          <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 text-amber-200 text-xs font-semibold animate-in zoom-in-95 duration-200 flex items-start gap-3 shadow-lg shadow-amber-950/40">
+            <span className="text-xl shrink-0">⚠️</span>
+            <div className="space-y-1">
+              <p className="font-black text-white text-sm">Session Disconnected</p>
+              <p className="text-amber-200/90 text-xs leading-relaxed">
+                You were automatically signed out because your account was logged into on another device. Lantawon accounts strictly enforce 1 active device at a time.
               </p>
             </div>
           </div>

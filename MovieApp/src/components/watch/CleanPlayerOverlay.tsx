@@ -23,6 +23,7 @@ import { STREAM_SERVERS, getStreamingServersFor } from "@/lib/constants/streamin
 import { useAuth } from "@/context/AuthContext";
 import { GuestTimerService } from "@/lib/services/guest-timer-service";
 import { formatDataSizeMb } from "@/lib/utils/formatters";
+import { VolumeMixerPopover } from "./VolumeMixerPopover";
 
 interface CleanPlayerOverlayProps {
   displayTitle: string;
@@ -44,6 +45,7 @@ interface CleanPlayerOverlayProps {
   volumeHUD?: number | null;
   volumeBoost?: number;
   onCycleVolumeBoost?: () => void;
+  onVolumeBoostChange?: (boost: number) => void;
   onBack?: () => void;
 }
 
@@ -78,13 +80,14 @@ export function CleanPlayerOverlay({
   volumeHUD,
   volumeBoost = 100,
   onCycleVolumeBoost,
+  onVolumeBoostChange,
   onBack,
 }: CleanPlayerOverlayProps) {
   const router = useRouter();
-  const { user, profile } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
-  const isPaidSubscriber = Boolean(user?.isLoggedIn && (user?.tier === "solo" || profile?.tier === "solo"));
-  const showTrialTimer = !isAdmin && !isPaidSubscriber;
+  const { user } = useAuth();
+  const isGuest = !user?.isLoggedIn || user?.role === "guest";
+  const showTrialTimer = isGuest;
+  const [isMixerOpen, setIsMixerOpen] = useState(false);
 
   const [guestRemainingSeconds, setGuestRemainingSeconds] = useState(() => {
     return GuestTimerService.getTimerData().remainingSeconds;
@@ -315,25 +318,42 @@ export function CleanPlayerOverlay({
             )}
           </div>
 
-          {/* Volume Boost Control */}
-          {onCycleVolumeBoost && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCycleVolumeBoost();
-              }}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full border backdrop-blur-md text-[10px] sm:text-xs font-bold font-mono transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95 shrink-0 ${
-                volumeBoost > 100
-                  ? "bg-amber-500/20 border-amber-400 text-amber-300 shadow-amber-500/20"
-                  : "bg-black/60 hover:bg-white/10 border-white/15 text-zinc-300"
-              }`}
-              aria-label="Cycle Volume Boost"
-              title="Cycle Volume Boost: 100%, 150%, 200%, 300% for quiet servers"
-            >
-              <Volume2 className={`h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 ${volumeBoost > 100 ? "text-amber-400 animate-pulse" : "text-zinc-400"}`} />
-              <span>{volumeBoost > 100 ? `${volumeBoost}% Boost` : "100%"}</span>
-            </button>
+          {/* Studio Audio Mixer Volume Boost Control */}
+          {(onVolumeBoostChange || onCycleVolumeBoost) && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  audioFX.playClick();
+                  setIsMixerOpen((prev) => !prev);
+                }}
+                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border backdrop-blur-md text-[10px] sm:text-xs font-bold font-mono transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95 shrink-0 ${
+                  volumeBoost > 100
+                    ? "bg-amber-500/25 border-amber-400 text-amber-300 shadow-amber-500/25 ring-1 ring-amber-400/50"
+                    : "bg-black/60 hover:bg-white/10 border-white/15 text-zinc-300 hover:text-white"
+                }`}
+                aria-label="Studio Audio Mixer"
+                title="Open Studio Audio Mixer (Fader up to 300% Gain)"
+              >
+                <Volume2
+                  className={`h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 ${
+                    volumeBoost > 100 ? "text-amber-400 animate-pulse" : "text-zinc-400"
+                  }`}
+                />
+                <span>{volumeBoost > 100 ? `${volumeBoost}% Boost` : "Mixer"}</span>
+              </button>
+
+              {onVolumeBoostChange && (
+                <VolumeMixerPopover
+                  volumeBoost={volumeBoost}
+                  onVolumeBoostChange={onVolumeBoostChange}
+                  isOpen={isMixerOpen}
+                  onClose={() => setIsMixerOpen(false)}
+                  isPlaying={isPlaying}
+                />
+              )}
+            </div>
           )}
 
           {/* 3. Data / MB Consumed Badge */}

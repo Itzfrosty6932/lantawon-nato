@@ -14,6 +14,7 @@ import {
 } from "./AudioSubtitlesModal";
 import { InPlayerEpisodesModal } from "./InPlayerEpisodesModal";
 import { GuestTimerService } from "@/lib/services/guest-timer-service";
+import { useAuth } from "@/context/AuthContext";
 import type { TvDetails, Episode } from "@/types/media";
 
 interface CinemaPlayerViewportProps {
@@ -56,6 +57,7 @@ interface CinemaPlayerViewportProps {
   showToast: (message: string, type?: "info" | "success" | "error") => void;
   volumeBoost?: number;
   onCycleVolumeBoost?: () => void;
+  onVolumeBoostChange?: (boost: number) => void;
   onBack?: () => void;
 }
 
@@ -86,6 +88,7 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
   dataUsedMb = 0,
   volumeBoost = 100,
   onCycleVolumeBoost,
+  onVolumeBoostChange,
   onSelectSeason,
   onSelectEpisode,
   onNextEpisode,
@@ -101,6 +104,8 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
   showToast,
   onBack,
 }: CinemaPlayerViewportProps) {
+  const { user } = useAuth();
+  const isGuest = !user?.isLoggedIn || user?.role === "guest";
   const activeMirrorUrl = resolvedMirrors[activeServer]?.url;
 
   // Playback state
@@ -178,8 +183,12 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
     }
   }, [localVideoRef]);
 
-  // Sync active playing state with GuestTimerService
+  // Sync active playing state with GuestTimerService (STRICTLY FOR GUESTS ONLY)
   useEffect(() => {
+    if (!isGuest) {
+      GuestTimerService.setPlaybackActive(false);
+      return;
+    }
     const isPlaybackActive = Boolean(
       isPlaying &&
       !isFrameLoading &&
@@ -192,7 +201,7 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
     return () => {
       GuestTimerService.setPlaybackActive(false);
     };
-  }, [isPlaying, isFrameLoading, isResolvingMirrors, activeMirrorUrl, entitlementDenial]);
+  }, [isGuest, isPlaying, isFrameLoading, isResolvingMirrors, activeMirrorUrl, entitlementDenial]);
 
   // Seeking (with live preview HUD)
   const handleSeek = useCallback((targetSeconds: number) => {
@@ -321,34 +330,71 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
     isTv && (seasonEpisodes.some((ep) => ep.episode_number === currentEpisode + 1) || onNextEpisode)
   );
 
-  // Web Audio API Gain Node for local media volume boosting (>100%)
+  // Web Audio API Gain Node & Dynamics Compressor for studio volume boosting (>100%)
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
+  const compressorRef = useRef<DynamicsCompressorNode | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (!localVideoRef.current) return;
-    try {
-      if (!audioCtxRef.current) {
-        const AudioContextClass =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextClass) {
-          const ctx = new AudioContextClass();
-          const gainNode = ctx.createGain();
-          const source = ctx.createMediaElementSource(localVideoRef.current);
-          source.connect(gainNode);
-          gainNode.connect(ctx.destination);
-          audioCtxRef.current = ctx;
-          gainNodeRef.current = gainNode;
-        }
-      }
-      if (gainNodeRef.current) {
-        gainNodeRef.current.gain.value = volumeBoost / 100;
-      }
-    } catch {
-      // Ignored if media element source is already connected or cross-origin
+    // If AudioContext exists and is suspended, resume it on any volume/boost adjustment
+    if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume().catch(() => {});
     }
-  }, [volumeBoost, localVideoRef]);
+
+    if (localVideoRef.current) {
+      try {
+        if (!audioCtxRef.current) {
+          const AudioContextClass =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            // Gain pre-amp node
+            const gainNode = ctx.createGain();
+            // Dynamics Compressor (mastering limiter to prevent clipping and maximize loudness)
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+            compressor.knee.setValueAtTime(30, ctx.currentTime);
+            compressor.ratio.setValueAtTime(12, ctx.currentTime);
+            compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+            compressor.release.setValueAtTime(0.25, ctx.currentTime);
+
+            const source = ctx.createMediaElementSource(localVideoRef.current);
+            source.connect(gainNode);
+            gainNode.connect(compressor);
+            compressor.connect(ctx.destination);
+
+            audioCtxRef.current = ctx;
+            gainNodeRef.current = gainNode;
+            compressorRef.current = compressor;
+
+            if (ctx.state === "suspended") {
+              ctx.resume().catch(() => {});
+            }
+          }
+        }
+
+        if (gainNodeRef.current && audioCtxRef.current) {
+          const gainValue = Math.max(1, volumeBoost / 100);
+          gainNodeRef.current.gain.setValueAtTime(gainValue, audioCtxRef.current.currentTime);
+        }
+      } catch {
+        // Source already connected or cross-origin
+      }
+    }
+
+    // Cross-origin iframe postMessage volume & boost sync
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (win) {
+        const scaledVol = Math.min(100, Math.round(volume * (volumeBoost / 100) * 100));
+        win.postMessage({ type: "setVolume", volume: scaledVol }, "*");
+        win.postMessage({ event: "command", func: "setVolume", args: [scaledVol] }, "*");
+        win.postMessage(JSON.stringify({ event: "command", func: "setVolume", args: [scaledVol] }), "*");
+      }
+    } catch {}
+  }, [volumeBoost, volume, localVideoRef]);
 
   return (
     <div ref={videoContainerRef} className={containerClasses}>
@@ -372,6 +418,7 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
         volumeHUD={volumeHUD}
         volumeBoost={volumeBoost}
         onCycleVolumeBoost={onCycleVolumeBoost}
+        onVolumeBoostChange={onVolumeBoostChange}
         onBack={onBack}
       />
 
@@ -473,6 +520,7 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
         <div className="relative h-full w-full bg-black">
           {activeMirrorUrl ? (
             <iframe
+              ref={iframeRef}
               key={`${activeServer}_${mediaId}_${currentSeason}_${currentEpisode}`}
               src={activeMirrorUrl}
               title={displayTitle}

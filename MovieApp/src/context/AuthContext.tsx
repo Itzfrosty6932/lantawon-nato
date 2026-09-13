@@ -119,6 +119,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           tier: liveProfile.tier,
           isLoggedIn: true,
         });
+
+        // Check single device status immediately on session load
+        const deviceStatus = await checkCurrentDeviceActive();
+        if (!deviceStatus.isActive && deviceStatus.reason === "device_superseded") {
+          console.warn("[Auth] Device was superseded by another login while away.");
+          audioFX.playWarning();
+          if (supabase) await supabase.auth.signOut().catch(() => {});
+          localStorage.removeItem("lantawon_auth_session");
+          setUser(DEFAULT_GUEST);
+          setProfile(DEFAULT_PROFILE);
+          if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+            window.location.href = "/login?reason=device_superseded";
+          }
+          return;
+        }
+
+        // Register / heartbeat this device
+        await registerDevice();
       } catch (e) {
         console.warn("[AuthContext Init Warning]", e);
       } finally {
@@ -149,8 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Periodic check every 25 seconds
-    const interval = setInterval(verifyActiveSession, 25000);
+    // Periodic check every 12 seconds
+    const interval = setInterval(verifyActiveSession, 12000);
 
     // Immediate check when tab gains focus
     const handleVisibilityChange = () => {

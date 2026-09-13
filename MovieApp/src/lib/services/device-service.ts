@@ -79,74 +79,48 @@ export function parseDeviceInfo(): {
 }
 
 /**
- * Register device on login (call this after successful auth)
+ * Register device on login or session init (authoritative server-side single device concurrency)
  */
 export async function registerDevice(): Promise<{
   deviceId: string;
   isNewDevice: boolean;
   otherDeviceIds: string[];
 }> {
-  const supabase = createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("No authenticated user");
+  if (typeof window === "undefined") {
+    return { deviceId: "", isNewDevice: false, otherDeviceIds: [] };
   }
 
   const fingerprint = generateDeviceFingerprint();
   const { name, browser, os } = parseDeviceInfo();
 
-  // Get IP address (best effort - may be blocked)
-  let ipAddress = "Unknown";
   try {
-    const ipRes = await fetch("https://api.ipify.org?format=json");
-    if (ipRes.ok) {
-      const data = await ipRes.json();
-      ipAddress = data.ip;
-    }
-  } catch {
-    // IP fetch failed, use fallback
-  }
-
-  const { data, error } = await supabase.rpc("register_device", {
-    p_user_id: user.id,
-    p_device_fingerprint: fingerprint,
-    p_device_name: name,
-    p_browser: browser,
-    p_os: os,
-    p_ip_address: ipAddress,
-  });
-
-  if (error) {
-    console.warn("[registerDevice] RPC failed:", {
-      message: error.message || "(no message)",
-      code: (error as any).code,
-      details: (error as any).details,
-      hint: (error as any).hint,
+    const res = await fetch("/api/auth/device", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fingerprint,
+        deviceName: name,
+        browser,
+        os,
+      }),
+      cache: "no-store",
     });
+
+    if (!res.ok) {
+      console.warn("[registerDevice] Server responded with status:", res.status);
+      return { deviceId: "", isNewDevice: false, otherDeviceIds: [] };
+    }
+
+    const data = await res.json();
+    return {
+      deviceId: data.deviceId || "",
+      isNewDevice: Boolean(data.supersededDevicesCount && data.supersededDevicesCount > 0),
+      otherDeviceIds: [],
+    };
+  } catch (err) {
+    console.warn("[registerDevice] network error:", err);
     return { deviceId: "", isNewDevice: false, otherDeviceIds: [] };
   }
-
-  // ─── STRICT SINGLE-DEVICE CONCURRENCY ───
-  // Deactivate all other registered devices for this user so only current device remains active
-  try {
-    await supabase
-      .from("user_devices")
-      .update({ is_active: false })
-      .eq("user_id", user.id)
-      .neq("device_fingerprint", fingerprint);
-  } catch (deactivateErr) {
-    console.warn("[registerDevice] Other devices deactivation note:", deactivateErr);
-  }
-
-  return {
-    deviceId: data?.[0]?.device_id,
-    isNewDevice: data?.[0]?.is_new_device ?? false,
-    otherDeviceIds: data?.[0]?.other_device_ids ?? [],
-  };
 }
 
 /**
@@ -160,29 +134,25 @@ export async function checkCurrentDeviceActive(): Promise<{
   if (typeof window === "undefined") return { isActive: true };
 
   try {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return { isActive: true };
-
     const fingerprint = generateDeviceFingerprint();
+    if (!fingerprint) return { isActive: true };
 
-    const { data, error } = await supabase
-      .from("user_devices")
-      .select("is_active, blocked_at")
-      .eq("user_id", user.id)
-      .eq("device_fingerprint", fingerprint)
-      .maybeSingle();
+    const res = await fetch(`/api/auth/device?fp=${encodeURIComponent(fingerprint)}`, {
+      method: "GET",
+      cache: "no-store",
+    });
 
-    if (error) {
-      // Don't log out user on temporary network glitch
+    if (res.status === 401) {
+      return { isActive: false, reason: "unauthenticated" };
+    }
+
+    if (!res.ok) {
       return { isActive: true };
     }
 
-    if (data && (data.is_active === false || data.blocked_at !== null)) {
-      return { isActive: false, reason: "device_superseded" };
+    const data = await res.json();
+    if (data.isActive === false) {
+      return { isActive: false, reason: data.reason || "device_superseded" };
     }
 
     return { isActive: true };

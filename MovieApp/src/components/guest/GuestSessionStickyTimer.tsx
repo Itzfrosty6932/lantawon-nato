@@ -12,9 +12,8 @@ export function GuestSessionStickyTimer() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, profile, isLoading } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
-  const isPaidSubscriber = Boolean(user?.isLoggedIn && (user?.tier === "solo" || profile?.tier === "solo"));
-  const showTrialTimer = !isAdmin && !isPaidSubscriber;
+  const isGuest = !user?.isLoggedIn || user?.role === "guest";
+  const showTrialTimer = isGuest;
 
   const [mounted, setMounted] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => {
