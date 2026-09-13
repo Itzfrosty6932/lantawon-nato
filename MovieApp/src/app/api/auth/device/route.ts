@@ -113,11 +113,25 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const fingerprint = searchParams.get("fp")?.trim();
 
+    const admin = createAdminSupabaseClient();
+
+    // If no fingerprint is provided, return all devices for the authenticated user
     if (!fingerprint) {
-      return NextResponse.json({ error: "Missing fp parameter" }, { status: 400 });
+      const { data: devices, error } = await admin
+        .from("user_devices")
+        .select("id, device_name, browser, os, ip_address, is_active, last_active_at, created_at, blocked_at")
+        .eq("user_id", identity.userId)
+        .order("last_active_at", { ascending: false });
+
+      if (error) {
+        console.warn("[/api/auth/device GET list error]:", error);
+        return NextResponse.json({ devices: [] });
+      }
+
+      return NextResponse.json({ devices: devices || [] });
     }
 
-    const admin = createAdminSupabaseClient();
+    // Single device active status check
     const { data: device, error } = await admin
       .from("user_devices")
       .select("id, is_active, blocked_at")
@@ -153,5 +167,41 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     console.error("[/api/auth/device GET error]:", err);
     return NextResponse.json({ isActive: true });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const identity = await getServerIdentity();
+    if (!identity.isAuthenticated || !identity.userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const deviceId = searchParams.get("id")?.trim();
+
+    if (!deviceId) {
+      return NextResponse.json({ error: "Device ID required" }, { status: 400 });
+    }
+
+    const admin = createAdminSupabaseClient();
+    const { error } = await admin
+      .from("user_devices")
+      .update({
+        is_active: false,
+        blocked_at: new Date().toISOString(),
+      })
+      .eq("id", deviceId)
+      .eq("user_id", identity.userId);
+
+    if (error) {
+      console.error("[/api/auth/device DELETE error]:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("[/api/auth/device DELETE error]:", err);
+    return NextResponse.json({ error: err.message || "Failed to revoke device" }, { status: 500 });
   }
 }

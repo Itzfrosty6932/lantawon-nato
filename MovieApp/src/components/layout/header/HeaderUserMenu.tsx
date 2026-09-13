@@ -13,6 +13,7 @@ import {
   Wifi,
   Globe,
   Settings,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { audioFX } from "@/lib/audio/audio-fx";
@@ -147,9 +148,21 @@ export function HeaderUserMenu({
               <span>My Account</span>
             </Link>
 
-            {/* Authenticated Members Only: History & Watchlist */}
+            {/* Authenticated Members Only: Devices, History & Watchlist */}
             {isAuthenticated && (
               <>
+                {/* Devices */}
+                <Link
+                  href="/account/devices"
+                  onClick={() => {
+                    audioFX.playClick();
+                    onClose();
+                  }}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  <Smartphone className="h-4 w-4 text-zinc-400" />
+                  <span>Devices</span>
+                </Link>
                 {/* History */}
                 <Link
                   href="/library"

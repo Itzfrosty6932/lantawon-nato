@@ -165,40 +165,43 @@ export async function checkCurrentDeviceActive(): Promise<{
  * Get all devices for current user
  */
 export async function getUserDevices(): Promise<UserDevice[]> {
-  const supabase = createClient();
+  try {
+    const res = await fetch("/api/auth/device", {
+      method: "GET",
+      cache: "no-store",
+    });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    if (!res.ok) {
+      console.warn("[getUserDevices] Server responded with status:", res.status);
+      return [];
+    }
 
-  if (!user) return [];
-
-  const { data, error } = await supabase.rpc("get_user_devices", {
-    p_user_id: user.id,
-  });
-
-  if (error) {
-    console.error("[getUserDevices]", error);
+    const data = await res.json();
+    return data.devices || [];
+  } catch (err) {
+    console.error("[getUserDevices]", err);
     return [];
   }
-
-  return data ?? [];
 }
 
 /**
  * Revoke/block a device
  */
 export async function revokeDevice(deviceId: string): Promise<boolean> {
-  const supabase = createClient();
+  try {
+    const res = await fetch(`/api/auth/device?id=${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+      cache: "no-store",
+    });
 
-  const { data, error } = await supabase.rpc("revoke_device", {
-    p_device_id: deviceId,
-  });
+    if (!res.ok) {
+      console.warn("[revokeDevice] Server responded with status:", res.status);
+      return false;
+    }
 
-  if (error) {
-    console.error("[revokeDevice]", error);
+    return true;
+  } catch (err) {
+    console.error("[revokeDevice]", err);
     return false;
   }
-
-  return data === true;
 }
