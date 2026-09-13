@@ -79,6 +79,27 @@ class AudioFXEngine {
       osc.stop(this.ctx.currentTime + 0.08);
     } catch {}
   }
+
+  playWarning() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      if (this.ctx.state === "suspended") this.ctx.resume();
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(350, this.ctx.currentTime);
+      osc.frequency.setValueAtTime(220, this.ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.25);
+    } catch {}
+  }
 }
 
 export const audioFX = new AudioFXEngine();

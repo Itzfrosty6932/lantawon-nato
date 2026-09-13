@@ -6,7 +6,7 @@ import { UserSessionState, EntitlementEngine, FeatureResource, EntitlementResult
 import { audioFX } from "@/lib/audio/audio-fx";
 import { sessionService } from "@/lib/services/session-service";
 import { subscriptionService } from "@/lib/services/subscription-service";
-import { registerDevice } from "@/lib/services/device-service";
+import { registerDevice, checkCurrentDeviceActive } from "@/lib/services/device-service";
 import { GuestTimerService } from "@/lib/services/guest-timer-service";
 
 export interface UserProfile {
@@ -69,13 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize session from Supabase + server-resolved profile.
-  //
-  // SECURITY (audit C4): authorization data (role/tier) is NEVER restored
-  // from localStorage and NEVER read from user_metadata — both are
-  // client-editable and trivially spoofable via devtools. Identity comes
-  // from the live Supabase session; role/tier come from a server route
-  // that reads public.profiles. localStorage caches ONLY cosmetic
-  // display fields for instant paint.
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -91,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Fetch authoritative profile from the server (profiles table).
         let resolvedRole: UserProfile["role"] = "user";
+        let resolvedTier: UserProfile["tier"] = "free";
         let displayName =
           sbUser.email?.split("@")[0] || "Lantawon User";
         let avatarUrl = "";
@@ -102,9 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             resolvedRole = serverProfile.role ?? "user";
             displayName = serverProfile.display_name || displayName;
             avatarUrl = serverProfile.avatar_url || "";
+            resolvedTier = serverProfile.tier === "solo" ? "solo" : "free";
           }
         } catch {
-          // Fail closed: without server confirmation, stay plain user.
+          // Fail closed: without server confirmation, stay plain user on free.
         }
 
         const liveProfile: UserProfile = {
@@ -112,9 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           displayName,
           email: sbUser.email || "",
           avatarUrl,
-          // Tier is resolved from subscription state server-side (H6);
-          // until that lands, default to free — never metadata.
-          tier: "free",
+          tier: resolvedTier,
           role: resolvedRole,
           createdAt: sbUser.created_at,
         };
@@ -135,6 +128,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initAuth();
   }, []);
+
+  // Real-time Single Device Concurrency Watcher
+  useEffect(() => {
+    if (!user.isLoggedIn || user.role === "guest") return;
+
+    let isMounted = true;
+
+    const verifyActiveSession = async () => {
+      const { isActive, reason } = await checkCurrentDeviceActive();
+      if (!isMounted) return;
+
+      if (!isActive && reason === "device_superseded") {
+        console.warn("[Auth] Current device has been superseded by a newer login.");
+        audioFX.playWarning();
+        await signOut();
+        if (typeof window !== "undefined") {
+          window.location.href = "/login?reason=device_superseded";
+        }
+      }
+    };
+
+    // Periodic check every 25 seconds
+    const interval = setInterval(verifyActiveSession, 25000);
+
+    // Immediate check when tab gains focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        verifyActiveSession();
+      }
+    };
+
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+    };
+  }, [user.isLoggedIn, user.role]);
 
   const saveLocalSession = (newProfile: UserProfile) => {
     setProfile(newProfile);
@@ -226,8 +260,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           sbProfile.role = serverProfile.role ?? "user";
           if (serverProfile.display_name) sbProfile.displayName = serverProfile.display_name;
           if (serverProfile.avatar_url) sbProfile.avatarUrl = serverProfile.avatar_url;
-          // Also resolve tier from subscription
-          if (serverProfile.tier) sbProfile.tier = serverProfile.tier;
+          // Guard the tier union — any unknown package code falls back to
+          // "free" so future packages don't crash the type.
+          sbProfile.tier = serverProfile.tier === "solo" ? "solo" : "free";
         }
       } catch {
         // Fail closed as plain user.

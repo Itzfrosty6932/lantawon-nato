@@ -63,9 +63,12 @@ export async function lookupGuestDevice(): Promise<ServerGuestState | null> {
 
     const fingerprint = computeFingerprint();
 
-    // Best-effort: persist fingerprint in an httpOnly cookie too, so a
-    // localStorage wipe doesn't spawn a new identity.
-    fetch("/api/guest-device", {
+    // Persist the fingerprint in an httpOnly cookie so a localStorage wipe
+    // doesn't spawn a new identity. This MUST be awaited: /api/stream/resolve
+    // authorizes guests off this cookie, so firing it in the background made
+    // the very first watch of a session race the cookie and get denied with
+    // "subscription required".
+    await fetch("/api/guest-device", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fingerprint }),

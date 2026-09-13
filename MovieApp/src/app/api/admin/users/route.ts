@@ -5,15 +5,13 @@ import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 /**
  * /api/admin/users   (ADMIN ONLY, service-role)
  *
- * Real user management for the admin portal. Reads/writes go through the
- * service-role client because:
- *   - profiles UPDATE policy is owner-only under RLS (an admin changing
- *     someone else's role would be silently filtered out), and
- *   - auth.users (email, ban, delete) is not exposed via PostgREST at all.
+ * Real user management for the admin portal.
+ * Reads/writes go through the service-role client.
  *
- * GET    ?query=&page=  -> users + subscription tier + device counts + email
- * PATCH  { userId, role?, banned? } -> change role / ban / unban
- * DELETE ?userId=       -> delete auth user + cascading profile data
+ * GET    ?query=&page=&limit=      -> list users + subscription tier + device counts
+ * GET    ?userId=xxx&details=true  -> deep-track user details (profile, sub, payments, refunds, tickets, watch time)
+ * PATCH  { userId, role?, banned? } -> change role / ban / unban (enable/disable)
+ * DELETE ?userId=                  -> delete auth user + cascading data
  */
 
 export const dynamic = "force-dynamic";
@@ -37,6 +35,7 @@ interface AdminUserRow {
   banned: boolean;
   subscription_status: string | null;
   package_name: string | null;
+  period_start?: string | null;
   period_end: string | null;
   device_count: number;
 }
@@ -57,25 +56,137 @@ async function writeAudit(
   });
 }
 
-// ── GET: list users with real entitlement + device data ────────────────────
+// ── GET: list users or deep-track single user details ──────────────────────
 export async function GET(req: NextRequest) {
   try {
     const identity = await requireAdmin();
     const admin = createAdminSupabaseClient();
 
+    const targetUserId = req.nextUrl.searchParams.get("userId");
+    const isDetails = req.nextUrl.searchParams.get("details") === "true";
+
+    // ── Single User Deep Inspection ──
+    if (targetUserId && isDetails) {
+      const [
+        { data: profile },
+        { data: authUserRes },
+        { data: accounts },
+        { data: payments },
+        { data: refunds },
+        { data: tickets },
+        { data: watchSessions },
+        { data: watchProgress },
+        { data: devices },
+      ] = await Promise.all([
+        admin.from("profiles").select("*").eq("id", targetUserId).single(),
+        admin.auth.admin.getUserById(targetUserId),
+        admin.from("accounts").select("id").eq("owner_user_id", targetUserId),
+        admin
+          .from("payment_submissions")
+          .select("*, package:subscription_packages(name, price_php, promo_percent)")
+          .eq("submitted_by_user_id", targetUserId)
+          .order("submitted_at", { ascending: false }),
+        admin
+          .from("refund_requests")
+          .select("*")
+          .eq("requested_by_user_id", targetUserId)
+          .order("created_at", { ascending: false }),
+        admin
+          .from("support_tickets")
+          .select("*")
+          .eq("created_by_user_id", targetUserId)
+          .order("created_at", { ascending: false }),
+        admin
+          .from("watch_sessions")
+          .select("*")
+          .eq("user_id", targetUserId)
+          .order("started_at", { ascending: false })
+          .limit(50),
+        admin
+          .from("watch_progress")
+          .select("*")
+          .eq("user_id", targetUserId)
+          .order("last_watched_at", { ascending: false })
+          .limit(50),
+        admin
+          .from("user_devices")
+          .select("*")
+          .eq("user_id", targetUserId)
+          .order("last_active_at", { ascending: false }),
+      ]);
+
+      if (!profile && !authUserRes?.user) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      // Fetch active subscription if account exists
+      let subscriptionData: any = null;
+      if (accounts && accounts.length > 0) {
+        const accountIds = accounts.map((a: { id: string }) => a.id);
+        const { data: sub } = await admin
+          .from("subscriptions")
+          .select("*, package:subscription_packages!current_package_id(name, price_php, billing_interval)")
+          .in("account_id", accountIds)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+        subscriptionData = sub;
+      }
+
+      // Compute total watch time in seconds
+      const totalWatchSeconds = (watchSessions || []).reduce(
+        (sum: number, s: { watch_duration_seconds?: number }) => sum + (s.watch_duration_seconds || 0),
+        0
+      );
+
+      const nonTrailerCount = (watchSessions || []).filter(
+        (s: { is_trailer?: boolean }) => !s.is_trailer
+      ).length;
+
+      const authUser = authUserRes?.user;
+      const banned =
+        authUser && "banned_until" in authUser
+          ? Boolean(authUser.banned_until && new Date(authUser.banned_until) > new Date())
+          : false;
+
+      return NextResponse.json({
+        user: {
+          id: targetUserId,
+          email: authUser?.email ?? profile?.email ?? null,
+          username: profile?.username ?? null,
+          display_name: profile?.display_name ?? null,
+          avatar_emoji: profile?.avatar_emoji ?? null,
+          role: profile?.role ?? "user",
+          created_at: profile?.created_at ?? authUser?.created_at ?? new Date().toISOString(),
+          last_sign_in_at: authUser?.last_sign_in_at ?? null,
+          banned: banned,
+          subscription: subscriptionData,
+          payments: payments || [],
+          refunds: refunds || [],
+          tickets: tickets || [],
+          devices: devices || [],
+          watchTelemetry: {
+            totalWatchSeconds,
+            nonTrailerCount,
+            totalProgressItems: watchProgress?.length || 0,
+            recentProgress: watchProgress || [],
+            recentSessions: watchSessions || [],
+          },
+        },
+      });
+    }
+
+    // ── List Users (Paginated & Filtered) ──
     const query = req.nextUrl.searchParams.get("query")?.trim() ?? "";
     const limit = Math.min(
       parseInt(req.nextUrl.searchParams.get("limit") ?? "100", 10) || 100,
       500
     );
 
-    // 1) Profiles (the canonical account list) — EXCLUDE ADMINS from list.
-    // Admins are hidden from the Users tab to prevent attackers from
-    // discovering and targeting the admin account.
     let profileQuery = admin
       .from("profiles")
       .select("*")
-      .neq("role", "admin")  // Hide all admin accounts
+      .neq("role", "admin") // Hide admin accounts from regular list
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -91,7 +202,6 @@ export async function GET(req: NextRequest) {
     const ids = (profiles || []).map((p: { id: string }) => p.id);
     const idSet = new Set(ids);
 
-    // 2) Emails + last sign-in from auth.users via the admin API.
     const { data: usersList } = await admin.auth.admin.listUsers({
       perPage: 500,
     });
@@ -103,39 +213,33 @@ export async function GET(req: NextRequest) {
           {
             email: u.email ?? null,
             lastSignIn: u.last_sign_in_at ?? null,
-            // banned_at only exists on the BanDuration variant of the
-            // supabase-js User type — read it defensively.
             banned:
-              "banned_at" in u && typeof (u as { banned_at?: unknown }).banned_at === "string"
-                ? !!(u as { banned_at: string }).banned_at
+              "banned_until" in u && typeof (u as { banned_until?: unknown }).banned_until === "string"
+                ? Boolean(new Date((u as { banned_until: string }).banned_until) > new Date())
                 : false,
           },
         ])
     );
 
-    // 3) Subscriptions: owner comes from accounts (account_id FK), package
-    //    comes from subscription_packages via the current_package_id FK on
-    //    subscriptions itself — NOT through accounts (there is no
-    //    accounts→packages relationship, which is why the nested embed 500'd).
     const { data: subRowData, error: subError } = await admin
       .from("subscriptions")
       .select(
-        `status, current_period_end, account:accounts(owner_user_id), package:subscription_packages!current_package_id(name)`
+        `status, current_period_start, current_period_end, account:accounts(owner_user_id), package:subscription_packages!current_package_id(name)`
       )
       .in("status", ["active", "pending_payment"]);
     if (subError) throw subError;
 
     const subByOwner = new Map<
       string,
-      { status: string; packageName: string | null; periodEnd: string | null }
+      { status: string; packageName: string | null; periodStart: string | null; periodEnd: string | null }
     >();
     for (const row of (subRowData ?? []) as unknown as Array<{
       status: string;
+      current_period_start: string | null;
       current_period_end: string | null;
       account: { owner_user_id: string }[] | { owner_user_id: string } | null;
       package: { name: string }[] | { name: string } | null;
     }>) {
-      // PostgREST returns to-one embeds as arrays; normalize both shapes.
       const acct = Array.isArray(row.account) ? row.account[0] : row.account;
       if (!acct || !idSet.has(acct.owner_user_id)) continue;
       if (!subByOwner.has(acct.owner_user_id)) {
@@ -143,12 +247,12 @@ export async function GET(req: NextRequest) {
         subByOwner.set(acct.owner_user_id, {
           status: row.status,
           packageName: pkg?.name ?? null,
+          periodStart: row.current_period_start ?? null,
           periodEnd: row.current_period_end ?? null,
         });
       }
     }
 
-    // 4) Device counts from member_sessions.
     const { data: sessionRows } = await admin
       .from("member_sessions")
       .select("user_id");
@@ -177,6 +281,7 @@ export async function GET(req: NextRequest) {
           banned: auth?.banned ?? false,
           subscription_status: sub?.status ?? null,
           package_name: sub?.packageName ?? null,
+          period_start: sub?.periodStart ?? null,
           period_end: sub?.periodEnd ?? null,
           device_count: deviceCounts.get(pid) ?? 0,
         };
@@ -201,7 +306,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── PATCH: change role or ban/unban ────────────────────────────────────────
+// ── PATCH: change role or ban/unban (enable/disable) ────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
     const identity = await requireAdmin();
@@ -226,30 +331,11 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Self-demote guard: an admin cannot strip their own admin rights —
-    // otherwise one misclick permanently locks everybody out of the portal.
     if (body.userId === identity.userId && body.role && body.role !== "admin") {
       return NextResponse.json(
         { error: "You cannot demote your own admin account." },
         { status: 400 }
       );
-    }
-
-    // Prevent demoting ANY admin account (not just self).
-    // Only the system should manage admin accounts.
-    if (body.role && body.role !== "admin") {
-      const { data: targetProfile } = await admin
-        .from("profiles")
-        .select("role")
-        .eq("id", body.userId)
-        .single();
-
-      if (targetProfile?.role === "admin") {
-        return NextResponse.json(
-          { error: "Cannot demote admin accounts. Only system can manage admin roles." },
-          { status: 403 }
-        );
-      }
     }
 
     const updates: Record<string, unknown> = {};
@@ -264,8 +350,8 @@ export async function PATCH(req: NextRequest) {
       auditAction = auditAction
         ? "admin.user_role_and_ban_changed"
         : body.banned
-          ? "admin.user_banned"
-          : "admin.user_unbanned";
+          ? "admin.user_disabled"
+          : "admin.user_enabled";
     }
 
     if (Object.keys(updates).length === 0) {
@@ -275,7 +361,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Role changes live on profiles; ban lives on the auth user.
     if (body.role !== undefined) {
       const { error } = await admin
         .from("profiles")
@@ -286,11 +371,10 @@ export async function PATCH(req: NextRequest) {
 
     if (body.banned !== undefined) {
       const { error } = await admin.auth.admin.updateUserById(body.userId, {
-        ban_duration: body.banned ? "876000h" : "none", // ~100 years ≈ permanent
+        ban_duration: body.banned ? "876000h" : "none",
       });
       if (error) throw error;
 
-      // Kicking a banned user out everywhere: revoke their active sessions.
       if (body.banned) {
         await admin
           .from("member_sessions")
@@ -302,7 +386,7 @@ export async function PATCH(req: NextRequest) {
 
     await writeAudit(admin, identity.userId, auditAction!, body.userId, updates);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, banned: body.banned });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json(
@@ -337,26 +421,21 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Clean up related data before deleting auth user
-    // Get all accounts owned by this user
     const { data: accounts } = await admin
       .from("accounts")
       .select("id")
       .eq("owner_user_id", userId);
 
-    // Delete subscriptions for those accounts
     for (const acc of accounts || []) {
       await admin.from("subscriptions").delete().eq("account_id", acc.id);
       await admin.from("accounts").delete().eq("id", acc.id);
     }
 
-    // Delete payment submissions
     await admin.from("payment_submissions").delete().eq("submitted_by_user_id", userId);
-
-    // Delete devices
+    await admin.from("refund_requests").delete().eq("requested_by_user_id", userId);
     await admin.from("user_devices").delete().eq("user_id", userId);
+    await admin.from("member_sessions").delete().eq("user_id", userId);
 
-    // Finally, delete the auth user (cascades to profiles)
     const { error } = await admin.auth.admin.deleteUser(userId);
     if (error) throw error;
 

@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getUserDevices, revokeDevice } from "@/lib/services/device-service";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 interface Device {
   id: string;
@@ -34,6 +35,7 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [deviceToRevoke, setDeviceToRevoke] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user.isLoggedIn) {
@@ -52,9 +54,7 @@ export default function DevicesPage() {
   };
 
   const handleRevokeDevice = async (deviceId: string) => {
-    if (!confirm("Are you sure? This will log you out of that device."))
-      return;
-
+    setDeviceToRevoke(null);
     setRevoking(deviceId);
     const success = await revokeDevice(deviceId);
 
@@ -173,9 +173,9 @@ export default function DevicesPage() {
                   {/* Remove Button */}
                   {device.is_active && (
                     <button
-                      onClick={() => handleRevokeDevice(device.id)}
+                      onClick={() => setDeviceToRevoke(device.id)}
                       disabled={revoking === device.id}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded transition font-medium text-sm flex-shrink-0 disabled:opacity-50"
+                      className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded transition font-medium text-sm flex-shrink-0 disabled:opacity-50 cursor-pointer"
                     >
                       {revoking === device.id ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -202,6 +202,15 @@ export default function DevicesPage() {
           </ul>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={Boolean(deviceToRevoke)}
+        onClose={() => setDeviceToRevoke(null)}
+        onConfirm={() => deviceToRevoke && handleRevokeDevice(deviceToRevoke)}
+        title="Remove Device?"
+        description="Are you sure you want to remove this device? This will log you out of that device immediately."
+        confirmLabel="Remove Device"
+      />
     </div>
   );
 }

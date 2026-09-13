@@ -6,24 +6,24 @@ import { CineStreamEngine } from "@/features/streaming/engine/cinestream-engine"
 import { LocalScannerService } from "@/features/library/local-scanner";
 import { db, LantawonDatabase } from "@/lib/db/dexie-db";
 import { GUEST_USER_ID } from "@/types/storage";
-import { STREAM_SERVERS } from "@/lib/constants/streaming-servers";
+import { STREAM_SERVERS, getStreamingServersFor } from "@/lib/constants/streaming-servers";
 import { formatYear } from "@/lib/utils/formatters";
 import { audioFX } from "@/lib/audio/audio-fx";
 import { useToast } from "@/components/ui/Toast";
 import { Header } from "@/components/layout/Header";
 import { LibraryDrawer } from "@/components/library/LibraryDrawer";
 import { PersonModal } from "@/components/movie/PersonModal";
-import { GuestSessionStickyTimer } from "@/components/guest/GuestSessionStickyTimer";
 import { lookupGuestDevice } from "@/lib/services/guest-device-service";
+import { GuestTimerService } from "@/lib/services/guest-timer-service";
 import { useAuth } from "@/context/AuthContext";
-import { supabase as supabaseBrowserClient } from "@/lib/supabase/client";
+import { StreakService } from "@/lib/services/streak-service";
 import { SaveToPlaylistModal } from "@/components/playlist/SaveToPlaylistModal";
 import { CinemaPlayerViewport } from "@/components/watch/CinemaPlayerViewport";
-import { CinemaControlBar } from "@/components/watch/CinemaControlBar";
 import { ServerPickerDrawer } from "@/components/watch/ServerPickerDrawer";
 import { EpisodeSelectorDrawer } from "@/components/watch/EpisodeSelectorDrawer";
 import { WatchSettingsModal } from "@/components/watch/WatchSettingsModal";
 import { MediaMetadataHero } from "@/components/watch/MediaMetadataHero";
+import { DetailsEpisodesSection } from "@/components/watch/DetailsEpisodesSection";
 import { CastAndRecommendations } from "@/components/watch/CastAndRecommendations";
 import { NetworkGuard } from "@/lib/utils/network-guard";
 import type {
@@ -38,11 +38,14 @@ import type { LocalScannedMediaRecord } from "@/types/storage";
 
 function WatchPageContent({ mediaId }: { mediaId: string }) {
   const searchParams = useSearchParams();
-  const mediaType = (searchParams.get("type") || "movie") as "movie" | "tv";
+  const rawType = (searchParams.get("type") || searchParams.get("media_type") || "movie").toLowerCase();
+  const mediaType: "movie" | "tv" = rawType === "anime" || rawType === "tv" || rawType === "series" || rawType === "show" ? "tv" : "movie";
+  const [detectedMediaType, setDetectedMediaType] = useState<"movie" | "tv">(mediaType);
+  const effectiveMediaType = detectedMediaType || mediaType;
   const localId = searchParams.get("localId");
   const { showToast } = useToast();
   const router = useRouter();
-  const { user: authUser } = useAuth();
+  const { user: authUser, isLoading: isAuthLoading } = useAuth();
   const isAuthenticatedRef = useRef(authUser.isLoggedIn);
   isAuthenticatedRef.current = authUser.isLoggedIn;
 
@@ -60,18 +63,13 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     (typeof window !== "undefined" && window.location.search.includes("localId"))
   );
 
-  // Core Playback State
+  const [isPlaying, setIsPlaying] = useState<boolean>(() => {
+    return searchParams.get("play") === "true";
+  });
+
   const [details, setDetails] = useState<MovieDetails | TvDetails | null>(null);
   const [activeServer, setActiveServer] = useState<string>(() => {
     if (isOfflineMode) return "local";
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("preferred_stream_server");
-        if (saved && STREAM_SERVERS.some((s) => s.id === saved)) {
-          return saved;
-        }
-      } catch {}
-    }
     return "server1";
   });
   const activeServerRef = useRef(activeServer);
@@ -79,15 +77,13 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   const userSelectedServerRef = useRef(false);
 
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
-  const [currentSeason, setCurrentSeason] = useState(1);
-  const [currentEpisode, setCurrentEpisode] = useState(1);
+  const initialSeason = parseInt(searchParams.get("season") || searchParams.get("s") || "1", 10) || 1;
+  const initialEpisode = parseInt(searchParams.get("episode") || searchParams.get("e") || "1", 10) || 1;
+  const [currentSeason, setCurrentSeason] = useState(initialSeason);
+  const [currentEpisode, setCurrentEpisode] = useState(initialEpisode);
   const [seasonEpisodes, setSeasonEpisodes] = useState<Episode[]>([]);
   const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
-  // playerWrapperRef wraps BOTH the viewport AND the control bar.
-  // This is the element we hand to requestFullscreen() so controls
-  // remain visible inside the native fullscreen surface.
-  const playerWrapperRef = useRef<HTMLDivElement | null>(null);
   // Player Surface State
   const [hudMessage, setHudMessage] = useState<string | null>(null);
   const [isFrameLoading, setIsFrameLoading] = useState(true);
@@ -121,6 +117,27 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     lastWrite: 0,
   });
 
+  // Resolved mirror URLs (populated by server-side entitlement check)
+  const [resolvedMirrors, setResolvedMirrors] = useState<Record<string, { url: string; name: string }>>({});
+  const [isResolvingMirrors, setIsResolvingMirrors] = useState(true);
+  const [entitlementDenial, setEntitlementDenial] = useState<
+    "SUBSCRIPTION_REQUIRED" | "PENDING_APPROVAL" | "EXPIRED" | "GUEST_TRIAL_ENDED" | null
+  >(null);
+
+  // Clean up legacy global preferred_stream_server so titles aren't poisoned by stale server state
+  useEffect(() => {
+    try {
+      localStorage.removeItem("preferred_stream_server");
+    } catch {}
+  }, []);
+
+  // Auto-dismiss loading spinner after 4.5s so cross-origin embeds without standard onLoad don't stall UI
+  useEffect(() => {
+    if (!isFrameLoading) return;
+    const timer = setTimeout(() => setIsFrameLoading(false), 4500);
+    return () => clearTimeout(timer);
+  }, [isFrameLoading, activeServer]);
+
   // Network Guard: Data Saver + live usage estimate
   const [dataSaver, setDataSaver] = useState(false);
   const [dataUsedMb, setDataUsedMb] = useState(0);
@@ -135,14 +152,20 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   const displayTitle = details?.title || details?.name || "Loading Title...";
   const year = formatYear(details?.release_date || details?.first_air_date);
 
+  // Clearing the pending timer keeps back-to-back HUDs from cutting each
+  // other short — the second message used to inherit the first one's deadline.
+  const hudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHud = useCallback((msg: string) => {
+    setHudMessage(msg);
+    if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+    hudTimerRef.current = setTimeout(() => setHudMessage(null), 2500);
+  }, []);
+
   const handleSelectServer = useCallback((serverId: string) => {
     audioFX.playClick();
     userSelectedServerRef.current = true;
     setActiveServer(serverId);
     setIsFrameLoading(true);
-    try {
-      localStorage.setItem("preferred_stream_server", serverId);
-    } catch {}
   }, []);
 
   // Load favorite / watchlist flags for this title from the local vault
@@ -160,17 +183,50 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   // ─── AUDIT C5: Wall-clock progress tracking for iframe mirrors ─────────────
   // Accumulates +5s every 5s while a mirror iframe is active and persists
   // resume position to the local vault at most every 15 seconds.
+  //
+  // ENTITLEMENT GATE (2026-08-27): only tick when the active mirror has a
+  // resolved URL. When the entitlement check fails (guest trial ended,
+  // subscription pending/expired), `resolvedMirrors` is empty and the
+  // CinemaPlayerViewport does NOT mount an iframe — so counting "playback"
+  // seconds and writing watchHistory here fabricates fake progress and
+  // reports phantom data usage. Unentitled visits must produce zero
+  // watchHistory rows and zero dataUsedMb.
+  // ─── Watch Progress + TikTok Streak Tracker ──────────────────────────────
+  // Ticks every 5 seconds. At 10 seconds of real playback, immediately writes
+  // watch history and fires the streak (TikTok mechanic: any watch >= 10s
+  // counts as the daily active day). XP accrual removed per user request.
+  const streakFiredTodayRef = useRef(false);
   useEffect(() => {
     if (isOfflineMode || activeServer === "local" || activeServer === "trailer") return;
+    if (!resolvedMirrors[activeServer]?.url || isFrameLoading || isResolvingMirrors) return;
+
+    streakFiredTodayRef.current = false;
     const interval = setInterval(() => {
       iframeProgressRef.current.seconds += 5;
       setDataUsedMb(
         NetworkGuard.calculateDataUsedMb(iframeProgressRef.current.seconds, "720p", dataSaver)
       );
 
+      // ── TikTok Streak: fire once at 10 seconds ──────────────────────────
+      if (!streakFiredTodayRef.current && iframeProgressRef.current.seconds >= 10) {
+        streakFiredTodayRef.current = true;
+        const uid = vaultUserIdRef.current;
+        StreakService.recordPlaybackStreak(uid, displayTitle).then(({ isNewDayStreak, streak }) => {
+          if (isNewDayStreak) {
+            showToast(
+              `🔥 Day ${streak} Streak! Keep watching daily to grow your flame!`,
+              "success"
+            );
+          }
+        });
+      }
+
       const now = Date.now();
       if (now - iframeProgressRef.current.lastWrite < 15_000) return;
       iframeProgressRef.current.lastWrite = now;
+
+      const isGuest = !authUser || !authUser.isLoggedIn || authUser.role === "guest";
+      if (isGuest) return;
 
       (async () => {
         try {
@@ -201,6 +257,9 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   }, [
     activeServer,
     isOfflineMode,
+    resolvedMirrors,
+    isFrameLoading,
+    isResolvingMirrors,
     mediaId,
     mediaType,
     currentSeason,
@@ -208,7 +267,31 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     displayTitle,
     details,
     dataSaver,
+    showToast,
   ]);
+
+  // Tell the guest trial clock that a stream is genuinely on screen and playing.
+  // Countdown MUST NOT decrement while loading, resolving mirrors, or on an offline/error mirror!
+  const isCurrentServerWorking =
+    serverHealth[activeServer]?.isPlayable !== false &&
+    serverHealth[activeServer]?.status !== "offline";
+
+  const isStreaming = Boolean(
+    !isOfflineMode &&
+    !entitlementDenial &&
+    activeServer !== "trailer" &&
+    resolvedMirrors[activeServer]?.url &&
+    !isFrameLoading &&
+    !isResolvingMirrors &&
+    isCurrentServerWorking
+  );
+
+  // Safety cleanup: Ensure guest playback is paused when unmounting watch page
+  useEffect(() => {
+    return () => {
+      GuestTimerService.setPlaybackActive(false);
+    };
+  }, []);
 
   // One-shot cellular/data-limit alert (resets per session via probeServers)
   useEffect(() => {
@@ -220,37 +303,8 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     }
   }, [dataUsedMb, showToast]);
 
-  // ─── XP accrual: 1 XP per 5-minute block of actual playback ───────────────
-  // Authenticated members only — guests never rank on the leaderboard, so
-  // they never accrue. Fire-and-forget: the process_xp_event trigger keeps
-  // profile totals authoritative; failures here must never disturb playback.
-  useEffect(() => {
-    if (!authUser.isLoggedIn || authUser.role === "guest" || isOfflineMode) return;
-    let secondsWatched = 0;
-    const interval = setInterval(() => {
-      secondsWatched += 5;
-      if (secondsWatched < 300) return; // 5-min block
-      secondsWatched -= 300;
-
-      supabaseBrowserClient
-        .from("xp_events")
-        .insert({
-          user_id: authUser.id,
-          event_type: "watch_time",
-          xp_amount: 1,
-          description: "Watched 5 minutes",
-        })
-        .then(({ error }) => {
-          if (error) console.warn("[xp] insert failed:", error.message);
-        });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [authUser.isLoggedIn, authUser.role, authUser.id, isOfflineMode]);
-
-  const showHud = (msg: string) => {
-    setHudMessage(msg);
-    setTimeout(() => setHudMessage(null), 1500);
-  };
+  // XP accrual removed — leaderboard and XP system have been fully removed.
+  // Daily streak is tracked instead via StreakService (, 10-second threshold).
 
   const scrollToPlayer = () => {
     if (videoContainerRef.current) {
@@ -269,8 +323,9 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     iframeProgressRef.current = { seconds: 0, lastWrite: 0 };
 
     try {
+      const category = rawType === "anime" ? "anime" : effectiveMediaType;
       const probeRes = await fetch(
-        `/api/stream/probe?id=${mediaId}&type=${mediaType}&s=${currentSeason}&e=${currentEpisode}`
+        `/api/stream/probe?id=${mediaId}&type=${category}&s=${currentSeason}&e=${currentEpisode}`
       );
       if (probeRes.ok) {
         const data = await probeRes.json();
@@ -283,7 +338,8 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
           }
         > = {};
 
-        STREAM_SERVERS.forEach((server) => {
+        const currentPool = getStreamingServersFor(category);
+        currentPool.forEach((server) => {
           const res = data.results?.[server.id];
           if (res) {
             healthMap[server.id] = {
@@ -292,27 +348,34 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
               isPlayable: res.isPlayable,
             };
           } else {
-            healthMap[server.id] = { status: "online", latencyMs: 120, isPlayable: true };
+            healthMap[server.id] = { status: "offline", latencyMs: 9999, isPlayable: false };
           }
         });
 
         setServerHealth(healthMap);
         setPlayableCount(data.playableCount || 0);
-        const resolvedBest = data.bestServer || data.bestServerId || "server1";
+        const resolvedBest = data.bestServer || data.bestServerId || currentPool[0]?.id || "server1";
         setBestServerId(resolvedBest);
 
         const currentServ = activeServerRef.current;
+        const currentIsBad =
+          healthMap[currentServ]?.isPlayable === false ||
+          healthMap[currentServ]?.status === "offline";
+
+        // Auto-switch immediately if the current server is broken/missing, or on initial load to best server
         if (
-          !userSelectedServerRef.current &&
-          healthMap[currentServ]?.status === "offline" &&
+          (currentIsBad || !userSelectedServerRef.current) &&
           resolvedBest &&
-          resolvedBest !== currentServ
+          resolvedBest !== currentServ &&
+          healthMap[resolvedBest]?.isPlayable !== false
         ) {
           handleSelectServer(resolvedBest);
-          showToast(
-            `Active mirror was offline. Auto-routed to fastest verified server (${resolvedBest}).`,
-            "info"
-          );
+          if (currentIsBad) {
+            showToast(
+              `Auto-routed to verified working mirror (${currentPool.find((s) => s.id === resolvedBest)?.name || "Server"}).`,
+              "info"
+            );
+          }
         }
       }
     } catch {
@@ -320,58 +383,54 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     } finally {
       setIsProbing(false);
     }
-  }, [mediaId, mediaType, currentSeason, currentEpisode, isOfflineMode, handleSelectServer, showToast]);
+  }, [mediaId, effectiveMediaType, rawType, currentSeason, currentEpisode, isOfflineMode, handleSelectServer, showToast]);
 
-  // ─── Probe is NOW LAZY ────────────────────────────────────────────────────
-  // Previously probeServers() fired on every mount and on every episode
-  // change, fanning out 14 concurrent requests to external hosts on every
-  // page load. This consumed Vercel Edge Requests rapidly and provided no
-  // benefit because the user may never open the Mirrors drawer at all.
-  //
-  // Probe is now triggered ONLY when the user explicitly:
-  //   • opens the Mirrors drawer  (handled in onProbeServers callback below)
-  //   • clicks Auto-Fix           (handleAutoSelectBest calls probeServers)
-  //   • clicks Retry inside the player (onProbeServers prop)
-  //
-  // Initial health state remains empty {}; the player still works because
-  // resolvedMirrors supplies the active URL directly from the server.
+  // AUDIT QUOTA OPTIMIZATION: probeServers() is now triggered lazily
+  // when the user opens the Mirrors panel or triggers Auto-Fix,
+  // preventing 14 automatic HTTP requests on every single page load.
 
   // ─── 1b. AUDIT C6: Resolve mirror URLs SERVER-SIDE ─────────────────────────
   // The client never builds embed URLs anymore. This route enforces auth +
   // subscription server-side and returns mirror URLs only when entitled.
-  const [resolvedMirrors, setResolvedMirrors] = useState<Record<string, { url: string; name: string }>>({});
 
   useEffect(() => {
-    if (isOfflineMode || mediaId.startsWith("local_")) return;
+    if (isOfflineMode || mediaId.startsWith("local_")) {
+      setIsResolvingMirrors(false);
+      return;
+    }
+
+    // Wait for AuthContext to resolve the real session before asking the
+    // server for mirrors.
+    if (isAuthLoading) return;
 
     let cancelled = false;
     let retriedAfterFingerprint = false;
 
     const resolveMirrors = async () => {
+      setIsResolvingMirrors(true);
       try {
-        // Guests must register their device fingerprint FIRST — the resolve
-        // route reads the httpOnly cookie that /api/guest-device sets. Best-
-        // effort: it also returns authoritative remaining trial time.
-        // Authenticated users skip this so they never drain device trial time.
-        if (!isAuthenticatedRef.current) {
+        if (!authUser.isLoggedIn) {
           await lookupGuestDevice();
         }
 
+        const category = rawType === "anime" ? "anime" : effectiveMediaType;
         const res = await fetch(
-          `/api/stream/resolve?id=${mediaId}&type=${mediaType}&s=${currentSeason}&e=${currentEpisode}`
+          `/api/stream/resolve?id=${mediaId}&type=${category}&s=${currentSeason}&e=${currentEpisode}`
         );
         if (!res.ok) {
           const body = res.status === 402 || res.status === 403
-            ? await res.json().catch(() => ({}) as { code?: string })
+            ? await res.json().catch(() => ({}) as { code?: "SUBSCRIPTION_REQUIRED" | "PENDING_APPROVAL" | "EXPIRED" | "GUEST_TRIAL_ENDED" })
             : {};
-          switch (body.code) {
+          const denial = body.code || "SUBSCRIPTION_REQUIRED";
+          if (!cancelled) setEntitlementDenial(denial);
+
+          switch (denial) {
             case "GUEST_TRIAL_ENDED":
-              showToast("Your free 30-minute trial has ended. Create an account to keep watching!", "info");
-              router.push("/?expired=1#plans");
+              showToast("Your free 30-minute trial has ended. Create an account or subscribe to keep watching!", "info");
               break;
             case "PENDING_APPROVAL":
               showToast(
-                "Payment under review — streaming unlocks once an admin approves it. Check Account → Subscription.",
+                "Payment under review — streaming unlocks once an admin approves it.",
                 "info"
               );
               break;
@@ -379,22 +438,18 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
               showToast("Your subscription has expired. Renew to keep watching.", "error");
               break;
             case "SUBSCRIPTION_REQUIRED":
-              // No fingerprint cookie existed yet (first visit / cookies
-              // blocked) — register once and retry before giving up.
-              if (!retriedAfterFingerprint && !isAuthenticatedRef.current) {
+              if (!retriedAfterFingerprint && !authUser.isLoggedIn) {
                 retriedAfterFingerprint = true;
                 await lookupGuestDevice();
                 const retry = await fetch(
-                  `/api/stream/resolve?id=${mediaId}&type=${mediaType}&s=${currentSeason}&e=${currentEpisode}`
+                  `/api/stream/resolve?id=${mediaId}&type=${category}&s=${currentSeason}&e=${currentEpisode}`
                 );
                 if (retry.ok && !cancelled) {
                   const retryData = await retry.json();
+                  setEntitlementDenial(null);
                   applyMirrorMap(retryData);
                   return;
                 }
-                if (!cancelled) showToast("Sign up or subscribe to stream this title.", "info");
-              } else if (!cancelled) {
-                showToast("Sign up or subscribe to stream this title.", "info");
               }
               break;
             default:
@@ -405,9 +460,15 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
         }
         const data = await res.json();
         if (cancelled) return;
+        setEntitlementDenial(null);
         applyMirrorMap(data);
       } catch {
-        if (!cancelled) setResolvedMirrors({});
+        if (!cancelled) {
+          setEntitlementDenial(null);
+          setResolvedMirrors({});
+        }
+      } finally {
+        if (!cancelled) setIsResolvingMirrors(false);
       }
     };
 
@@ -423,9 +484,20 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [mediaId, mediaType, currentSeason, currentEpisode, isOfflineMode, showToast, router]);
+  }, [
+    mediaId,
+    effectiveMediaType,
+    currentSeason,
+    currentEpisode,
+    isOfflineMode,
+    isAuthLoading,
+    authUser.isLoggedIn,
+    authUser.id,
+    showToast,
+    router,
+  ]);
 
-  // ─── 2. Fetch Media Details ────────────────────────────────────────────────
+  // ─── 2. Fetch Media Details with Automatic Cross-Type Resolution ──────────
   useEffect(() => {
     const loadMediaDetails = async () => {
       try {
@@ -449,14 +521,37 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
           return;
         }
 
-        const endpoint = mediaType === "tv" ? `/api/series/${mediaId}` : `/api/movies/${mediaId}`;
-        const res = await fetch(endpoint);
+        let data: any = null;
+        let resolvedType: "movie" | "tv" = mediaType;
+
+        const primaryEndpoint = mediaType === "tv" ? `/api/series/${mediaId}` : `/api/movies/${mediaId}`;
+        const res = await fetch(primaryEndpoint);
         if (res.ok) {
-          const data = await res.json();
+          data = await res.json();
+          if (mediaType === "tv" && data.title && !data.name && !data.seasons) {
+            resolvedType = "movie";
+          }
+        } else {
+          // Automatic cross-type fallback (e.g. anime movie with type=tv or anime series with type=movie)
+          const fallbackEndpoint = mediaType === "tv" ? `/api/movies/${mediaId}` : `/api/series/${mediaId}`;
+          const fallbackRes = await fetch(fallbackEndpoint);
+          if (fallbackRes.ok) {
+            data = await fallbackRes.json();
+            resolvedType = mediaType === "tv" ? "movie" : "tv";
+          }
+        }
+
+        if (data) {
+          if (data.seasons || data.number_of_seasons || ("name" in data && !("title" in data))) {
+            resolvedType = "tv";
+          } else if ("title" in data && !data.seasons) {
+            resolvedType = "movie";
+          }
+          setDetectedMediaType(resolvedType);
           setDetails(data);
 
-          // Fetch Trailer
-          const trailerRes = await fetch(`/api/trailer?id=${mediaId}&type=${mediaType}`);
+          // Fetch Trailer with canonical type
+          const trailerRes = await fetch(`/api/trailer?id=${mediaId}&type=${resolvedType}`);
           if (trailerRes.ok) {
             const trailerData = await trailerRes.json();
             if (trailerData.key) {
@@ -464,44 +559,19 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
             }
           }
 
-          // Fetch Recommendations (Direct TMDB Recommendations first, then discover fallback)
+          // Fetch Recommendations with canonical type
           if (data.recommendations?.results && data.recommendations.results.length > 0) {
             setRecommendations(data.recommendations.results.slice(0, 12));
           } else {
             const genreList = (data.genres || []).map((g: { id: number }) => g.id).filter(Boolean);
             const genreParam = genreList.length > 0 ? genreList.join(",") : "28";
             const recsRes = await fetch(
-              `/api/catalog/discover?media_type=${mediaType}&genre=${genreParam}&sort_by=popularity.desc`
+              `/api/catalog/discover?media_type=${resolvedType}&genre=${genreParam}&sort_by=popularity.desc`
             );
             if (recsRes.ok) {
               const recsData = await recsRes.json();
               setRecommendations((recsData.results || []).slice(0, 12));
             }
-          }
-
-          // AUDIT C5 FIX: Create history entry ONLY if none exists yet.
-          // The old unconditional put() overwrote real resume positions
-          // with junk (currentTime: 0) every time details loaded or the
-          // season/episode changed. Existing records keep their progress;
-          // handleTimeUpdate owns all subsequent writes.
-          const historyKey = LantawonDatabase.historyKey(vaultUserIdRef.current, mediaId, currentSeason, currentEpisode);
-          const existing = await db.watchHistory.get(historyKey);
-          if (!existing) {
-            await db.watchHistory.put({
-              id: historyKey,
-              userId: vaultUserIdRef.current,
-              mediaId,
-              mediaType,
-              title: data.title || data.name || "Untitled",
-              posterPath: data.poster_path || "",
-              season: currentSeason,
-              episode: currentEpisode,
-              currentTime: 0,
-              duration: 0,
-              percentage: 0,
-              lastWatchedAt: new Date().toISOString(),
-              completed: false,
-            });
           }
         }
       } catch (e) {
@@ -565,11 +635,16 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   }, [activeServer, localId]);
 
   // Local Video Progress Tracker
-  const handleTimeUpdate = async () => {
+  // Memoized so CinemaPlayerViewport's React.memo actually holds — an unstable
+  // prop here re-rendered the whole player tree on every 5s progress tick.
+  const handleTimeUpdate = useCallback(async () => {
     if (!localVideoRef.current) return;
     const cur = localVideoRef.current.currentTime;
     const dur = localVideoRef.current.duration || 1;
     const pct = Math.floor((cur / dur) * 100);
+
+    const isGuest = !authUser || !authUser.isLoggedIn || authUser.role === "guest";
+    if (isGuest) return;
 
     if (Math.floor(cur) % 3 === 0) {
       await db.watchHistory.put({
@@ -588,7 +663,7 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
         completed: pct > 90,
       });
     }
-  };
+  }, [mediaId, mediaType, currentSeason, currentEpisode, displayTitle, details]);
 
   // Subtitle File Upload Handler
   const handleSubtitleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -644,79 +719,138 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     }
   };
 
+  const toggleWatchlist = async () => {
+    audioFX.playPop();
+    const nextSaved = !isSaved;
+    setIsSaved(nextSaved);
+    if (details) {
+      const mediaIdStr = String(mediaId);
+      await db.libraryItems.put({
+        id: LantawonDatabase.libraryKey(vaultUserIdRef.current, mediaIdStr),
+        userId: vaultUserIdRef.current,
+        mediaId: mediaIdStr,
+        mediaType,
+        title: displayTitle,
+        posterPath: details.poster_path || "",
+        genres: details.genres?.map((g) => g.name) || [],
+        rating: details.vote_average || 0,
+        inWatchlist: nextSaved,
+        isFavorite: isFavorited,
+        addedAt: new Date().toISOString(),
+      });
+      showToast(nextSaved ? "Added to Watchlist" : "Removed from Watchlist", "success");
+    }
+  };
+
   const handleAutoSelectBest = () => {
     audioFX.playPop();
     if (bestServerId) {
       handleSelectServer(bestServerId);
-      showToast(`Selected fastest verified mirror: ${bestServerId}`, "success");
     }
   };
 
   const handleSwitchNextServer = useCallback(() => {
     audioFX.playClick();
-    const currentIndex = STREAM_SERVERS.findIndex((s) => s.id === activeServer);
-    const nextIndex = (currentIndex + 1) % STREAM_SERVERS.length;
-    const nextServer = STREAM_SERVERS[nextIndex];
-    handleSelectServer(nextServer.id);
-    showToast(`Switched to Mirror #${nextIndex + 1}: ${nextServer.name}`, "info");
-    showHud(`Mirror: ${nextServer.name}`);
-  }, [activeServer, handleSelectServer, showToast]);
+    const serverIds = STREAM_SERVERS.map((s) => s.id);
+    const currentIndex = serverIds.indexOf(activeServer);
+
+    // Try to find the next server that is not marked offline
+    let nextIndex = (currentIndex + 1) % serverIds.length;
+    for (let i = 1; i <= serverIds.length; i++) {
+      const checkIdx = (currentIndex + i) % serverIds.length;
+      const sid = serverIds[checkIdx];
+      const health = serverHealth[sid];
+      if (resolvedMirrors[sid]?.url && health?.status !== "offline" && health?.isPlayable !== false) {
+        nextIndex = checkIdx;
+        break;
+      }
+    }
+
+    // handleSelectServer already raises a HUD naming the mirror and the resume
+    // point; a toast on top of it was two notifications for one action.
+    handleSelectServer(STREAM_SERVERS[nextIndex].id);
+  }, [activeServer, serverHealth, resolvedMirrors, handleSelectServer]);
 
   const handleToggleTheaterMode = useCallback(() => {
     audioFX.playClick();
     setIsTheaterMode((prev) => {
       const next = !prev;
-      showToast(next ? "Theater Mode Active" : "Standard Mode", "info");
       showHud(next ? "Mode: Theater 21:9" : "Mode: Standard 16:9");
       return next;
     });
-  }, [showToast]);
+  }, [showHud]);
 
-  // ─── Fullscreen Toggle ───────────────────────────────────────────────────
-  // We request fullscreen on playerWrapperRef which contains BOTH the video
-  // viewport AND the CinemaControlBar — so controls stay visible inside the
-  // native fullscreen surface.
-  //
-  // State is NOT set optimistically here (race condition fix). Instead the
-  // fullscreenchange event listener below is the single source of truth for
-  // isFullScreen. This avoids stuck-fullscreen CSS when requestFullscreen()
-  // fails silently on mobile browsers.
+  const handleNextEpisode = useCallback(() => {
+    audioFX.playClick();
+    userSelectedServerRef.current = false;
+    const hasNextInSeason = seasonEpisodes.some((ep) => ep.episode_number === currentEpisode + 1);
+    if (hasNextInSeason) {
+      setCurrentEpisode((prev) => prev + 1);
+      scrollToPlayer();
+      showToast(`Switched to Episode ${currentEpisode + 1}`, "info");
+    } else if (details && "seasons" in details) {
+      const tv = details as TvDetails;
+      const nextSeasonNum = currentSeason + 1;
+      const hasNextSeason = tv.seasons?.some((s) => s.season_number === nextSeasonNum);
+      if (hasNextSeason) {
+        setCurrentSeason(nextSeasonNum);
+        setCurrentEpisode(1);
+        scrollToPlayer();
+        showToast(`Started Season ${nextSeasonNum} Episode 1`, "info");
+      }
+    }
+  }, [seasonEpisodes, currentEpisode, details, currentSeason, showToast]);
+
   const handleToggleFullScreen = useCallback(async () => {
     audioFX.playPop();
     try {
-      if (!document.fullscreenElement) {
-        const target = playerWrapperRef.current;
-        if (target?.requestFullscreen) {
-          await target.requestFullscreen();
-          // state will be set by the fullscreenchange listener
-        } else {
-          // Browser doesn't support Fullscreen API (some older mobile)
-          // Fall back to CSS-only fullscreen as a last resort
-          setIsFullScreen(true);
-          showToast("Cinema Fullscreen Active (ESC to exit)", "success");
-          showHud("Full Mode: Active");
+      if (!isFullScreen) {
+        const el = videoContainerRef.current;
+        if (el?.requestFullscreen) {
+          await el.requestFullscreen().catch(() => {});
+        } else if ((el as any)?.webkitRequestFullscreen) {
+          await (el as any).webkitRequestFullscreen();
+        }
+        setIsFullScreen(true);
+        showHud("Full Mode: Active");
+
+        // Attempt mobile / tablet landscape auto-rotation lock
+        if (typeof window !== "undefined" && "screen" in window && (window.screen as any)?.orientation?.lock) {
+          try {
+            await (window.screen as any).orientation.lock("landscape");
+          } catch {}
         }
       } else {
-        await document.exitFullscreen();
-        // state will be cleared by the fullscreenchange listener
+        if (typeof document !== "undefined" && document.fullscreenElement) {
+          await document.exitFullscreen().catch(() => {});
+        } else if (typeof document !== "undefined" && (document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        }
+        setIsFullScreen(false);
+        showHud("Full Mode: Standard");
+
+        if (typeof window !== "undefined" && "screen" in window && (window.screen as any)?.orientation?.unlock) {
+          try {
+            (window.screen as any).orientation.unlock();
+          } catch {}
+        }
       }
     } catch {
-      // requestFullscreen can throw in restricted contexts (e.g. iOS Safari
-      // requires a direct user gesture on the video element). Silently ignore.
+      setIsFullScreen(!isFullScreen);
     }
-  }, [showToast]);
+  }, [isFullScreen, showHud]);
 
-  // ─── Fullscreen State Sync (authoritative) ─────────────────────────────
-  // This is the ONLY place isFullScreen state changes for native fullscreen.
-  // It reacts to both our own toggle and the user pressing ESC.
+  // Sync fullscreen state with native browser fullscreen changes
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const inFullscreen = Boolean(document.fullscreenElement);
-      setIsFullScreen(inFullscreen);
-      if (inFullscreen) {
-        showHud("Full Mode: Active");
-      } else {
-        showHud("Full Mode: Standard");
+      const isDocFs = Boolean(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      if (!isDocFs && isFullScreen) {
+        setIsFullScreen(false);
+        if (typeof window !== "undefined" && "screen" in window && (window.screen as any)?.orientation?.unlock) {
+          try {
+            (window.screen as any).orientation.unlock();
+          } catch {}
+        }
       }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -725,9 +859,7 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     };
-  // showHud is stable (no deps needed) — eslint-disable-next-line is intentional
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isFullScreen]);
 
   // Keyboard Shortcuts: 'S' (Switch Mirror), 'T' (Theater Mode), 'F' (Fullscreen)
   useEffect(() => {
@@ -756,149 +888,159 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     setIsFrameLoading(false);
   }, []);
 
+  // Volume Boost State: 100%, 150%, 200%, 300%
+  const [volumeBoost, setVolumeBoost] = useState<number>(100);
+  const handleCycleVolumeBoost = useCallback(() => {
+    setVolumeBoost((prev) => {
+      const next = prev === 100 ? 150 : prev === 150 ? 200 : prev === 200 ? 300 : 100;
+      audioFX.playClick();
+      showToast(
+        next > 100
+          ? `🔊 Volume Boost: ${next}% active (Tip: maximize video player volume for best effect)`
+          : "🔉 Volume: Normal (100%)",
+        next > 100 ? "success" : "info"
+      );
+      return next;
+    });
+  }, [showToast]);
+
   return (
     <div className="min-h-screen bg-[#111112] text-zinc-100 flex flex-col selection:bg-[#E50914] selection:text-white">
-      {/* ─── Header ─── */}
-      <Header onOpenLibrary={() => setIsLibraryOpen(true)} />
-
-      {/* ─── Hero Video Viewport Section ─── */}
-      {/*
-        playerWrapperRef wraps the viewport + control bar together.
-        requestFullscreen() is called on this element so the controls remain
-        visible inside the native fullscreen surface. Without this wrapper,
-        CinemaControlBar was a sibling OUTSIDE the fullscreen element and
-        disappeared when fullscreen was entered.
-      */}
-      <div
-        ref={playerWrapperRef}
-        className={[
-          "w-full flex flex-col items-center bg-black pt-[57px] sm:pt-[65px]",
-          // In native fullscreen the browser makes this element fill the
-          // screen via :fullscreen. We reinforce with explicit sizing so
-          // the nested flex children also fill correctly.
-          isFullScreen ? "[&:fullscreen]:p-0 [&:-webkit-full-screen]:p-0" : "",
-        ].join(" ")}
-      >
-        <CinemaPlayerViewport
-          videoContainerRef={videoContainerRef}
-          localVideoRef={localVideoRef}
-          activeServer={activeServer}
-          displayTitle={displayTitle}
-          mediaId={mediaId}
-          mediaType={mediaType}
-          currentSeason={currentSeason}
-          currentEpisode={currentEpisode}
-          trailerKey={trailerKey}
-          hudMessage={hudMessage}
-          subtitlesUrl={subtitlesUrl}
-          isFrameLoading={isFrameLoading}
-          isProbing={isProbing}
-          playableCount={playableCount}
-          resolvedMirrors={resolvedMirrors}
-          isTheaterMode={isTheaterMode}
-          isFullScreen={isFullScreen}
-          onTimeUpdate={handleTimeUpdate}
-          onFrameLoad={handleFrameLoad}
-          onSelectServer={handleSelectServer}
-          onProbeServers={probeServers}
-          onToggleFullScreen={handleToggleFullScreen}
-          onToggleTheaterMode={handleToggleTheaterMode}
-          showToast={showToast}
-        />
-
-        {/* ─── Cinema Control Bar (Below Player, INSIDE the fullscreen wrapper) ─── */}
-        <CinemaControlBar
-          activeServer={activeServer}
-          isOfflineMode={isOfflineMode}
-          playableCount={playableCount}
-          isServerDrawerOpen={isServerDrawerOpen}
-          isSettingsOpen={isSettingsOpen}
-          isTheaterMode={isTheaterMode}
-          isFullScreen={isFullScreen}
-          dataUsedMb={dataUsedMb}
-          isDataSaver={dataSaver}
-          onAutoSelectBest={handleAutoSelectBest}
-          onSwitchNextServer={handleSwitchNextServer}
-          onToggleServerDrawer={() => {
-            // Probe lazily: only when user opens the Mirrors drawer
-            if (!isServerDrawerOpen) probeServers();
-            setIsServerDrawerOpen(!isServerDrawerOpen);
-          }}
-          onToggleSettings={() => setIsSettingsOpen(!isSettingsOpen)}
-          onToggleTheaterMode={handleToggleTheaterMode}
-          onToggleFullScreen={handleToggleFullScreen}
-          onSubtitleFile={handleSubtitleFile}
-        />
-
-        {/* ─── Diagnostics & Data Guard Dropdown Panel ─── */}
-        <WatchSettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          metrics={metrics ?? {
-            currentTime: 0,
-            duration: 0,
-            bufferedSeconds: 0,
-            bandwidthKbps: 0,
-            droppedFrames: 0,
-            decodedFrames: 0,
-            avDriftMs: 0,
-            rebufferCount: 0,
-            rebufferDurationMs: 0,
-            qoeScore: 100,
-            server: activeServer,
-          }}
-          activeServer={activeServer}
-          dataUsedMb={dataUsedMb}
-          onSelectServer={handleSelectServer}
-        />
-      </div>
-
-      {/* ─── Main Content Lower Body ─── */}
-      <main className="w-full px-4 sm:px-8 lg:px-14 py-6 space-y-6 pb-20">
-        {/* ─── Hero Title, Metadata & Quick Actions ─── */}
-        <MediaMetadataHero
-          displayTitle={displayTitle}
-          year={year}
-          mediaType={mediaType}
-          currentSeason={currentSeason}
-          currentEpisode={currentEpisode}
-          details={details}
-          isFavorited={isFavorited}
-          onOpenPlaylistModal={() => setIsPlaylistModalOpen(true)}
-          onToggleFavorite={toggleFavorite}
-          onShare={handleShare}
-        />
-
-        {/* ─── TV Series Seasons & Episodes Grid ─── */}
-        {mediaType === "tv" && details && "seasons" in details && (
-          <EpisodeSelectorDrawer
-            details={details as TvDetails}
+      {/* ─── A. FULL-SCREEN IMMERSIVE CINEMA PLAYER VIEW (When Playing) ─── */}
+      {isPlaying ? (
+        <div className="fixed inset-0 z-[80] w-screen h-screen bg-black overflow-hidden flex flex-col items-center justify-center">
+          <CinemaPlayerViewport
+            videoContainerRef={videoContainerRef}
+            localVideoRef={localVideoRef}
+            activeServer={activeServer}
+            displayTitle={displayTitle}
+            mediaId={mediaId}
+            mediaType={rawType === "anime" ? "anime" : effectiveMediaType}
             currentSeason={currentSeason}
             currentEpisode={currentEpisode}
+            trailerKey={trailerKey}
+            hudMessage={hudMessage}
+            subtitlesUrl={subtitlesUrl}
+            isFrameLoading={isFrameLoading}
+            isProbing={isProbing}
+            playableCount={playableCount}
+            resolvedMirrors={resolvedMirrors}
+            isResolvingMirrors={isResolvingMirrors}
+            entitlementDenial={entitlementDenial}
+            isTheaterMode={isTheaterMode}
+            isFullScreen={isFullScreen}
+            currentTime={iframeProgressRef.current.seconds}
+            duration={details && "runtime" in details && typeof details.runtime === "number" && details.runtime > 0 ? details.runtime * 60 : 1609}
+            tvDetails={details && "seasons" in details ? (details as TvDetails) : null}
             seasonEpisodes={seasonEpisodes}
             onSelectSeason={(s) => {
+              userSelectedServerRef.current = false;
               setCurrentSeason(s);
               setCurrentEpisode(1);
-              scrollToPlayer();
             }}
             onSelectEpisode={(ep) => {
+              userSelectedServerRef.current = false;
               setCurrentEpisode(ep);
-              scrollToPlayer();
             }}
-            onScrollToPlayer={scrollToPlayer}
+            onNextEpisode={handleNextEpisode}
+            onTimeUpdate={handleTimeUpdate}
+            onFrameLoad={handleFrameLoad}
+            onSelectServer={handleSelectServer}
+            onAutoSelectBest={handleAutoSelectBest}
+            onProbeServers={probeServers}
+            onNextServer={handleSwitchNextServer}
+            onToggleFullScreen={handleToggleFullScreen}
+            onToggleTheaterMode={handleToggleTheaterMode}
+            dataUsedMb={dataUsedMb}
+            showToast={showToast}
+            volumeBoost={volumeBoost}
+            onCycleVolumeBoost={handleCycleVolumeBoost}
+            onBack={() => setIsPlaying(false)}
           />
-        )}
 
-        {/* ─── Cast, Advisory & Recommendations ─── */}
-        <CastAndRecommendations
-          mediaId={mediaId}
-          mediaType={mediaType}
-          displayTitle={displayTitle}
-          details={details}
-          recommendations={recommendations}
-          onScrollToPlayer={scrollToPlayer}
-        />
-      </main>
+          {/* Diagnostics Panel */}
+          <WatchSettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            metrics={metrics ?? {
+              currentTime: 0,
+              duration: 0,
+              bufferedSeconds: 0,
+              bandwidthKbps: 0,
+              droppedFrames: 0,
+              decodedFrames: 0,
+              avDriftMs: 0,
+              rebufferCount: 0,
+              rebufferDurationMs: 0,
+              qoeScore: 100,
+              server: activeServer,
+            }}
+            activeServer={activeServer}
+            dataUsedMb={dataUsedMb}
+            onSelectServer={handleSelectServer}
+          />
+        </div>
+      ) : (
+        <>
+          {/* ─── FULL-BLEED HERO BANNER (NO TOP/LEFT/RIGHT MARGINS) ─── */}
+          <MediaMetadataHero
+            displayTitle={displayTitle}
+            year={year}
+            mediaType={effectiveMediaType}
+            currentSeason={currentSeason}
+            currentEpisode={currentEpisode}
+            details={details}
+            trailerKey={trailerKey}
+            isFavorited={isFavorited}
+            isInWatchlist={isSaved}
+            onPlay={() => setIsPlaying(true)}
+            onOpenPlaylistModal={() => setIsPlaylistModalOpen(true)}
+            onToggleFavorite={toggleFavorite}
+            onToggleWatchlist={toggleWatchlist}
+            onBack={() => {
+              if (typeof window !== "undefined" && window.history.length > 1) {
+                router.back();
+              } else {
+                router.push("/home");
+              }
+            }}
+          />
+
+          {/* ─── MEDIA DETAILS BODY SECTIONS ─── */}
+          <main className="w-full px-6 sm:px-12 lg:px-16 py-10 space-y-12 pb-24">
+            {/* TV Series / Anime Episodes List (Screenshot 1 Style) */}
+            {effectiveMediaType === "tv" && (
+              <DetailsEpisodesSection
+                details={details && "seasons" in details ? (details as TvDetails) : null}
+                currentSeason={currentSeason}
+                currentEpisode={currentEpisode}
+                episodes={seasonEpisodes}
+                onSelectSeason={(s) => {
+                  userSelectedServerRef.current = false;
+                  setCurrentSeason(s);
+                  setCurrentEpisode(1);
+                }}
+                onPlayEpisode={(s, ep) => {
+                  userSelectedServerRef.current = false;
+                  setCurrentSeason(s);
+                  setCurrentEpisode(ep);
+                  setIsPlaying(true);
+                }}
+              />
+            )}
+
+            {/* Cast & Recommendations (Screenshot 2 Style) */}
+            <CastAndRecommendations
+              mediaId={mediaId}
+              mediaType={effectiveMediaType}
+              displayTitle={displayTitle}
+              details={details}
+              recommendations={recommendations}
+              onScrollToPlayer={() => setIsPlaying(true)}
+            />
+          </main>
+        </>
+      )}
 
       {/* ─── Floating Streaming Mirrors Modal / Drawer ─── */}
       <ServerPickerDrawer
@@ -935,9 +1077,6 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
           }}
         />
       )}
-
-      {/* ─── Floating Device-Based 30-Minute Guest Session Timer ─── */}
-      <GuestSessionStickyTimer />
     </div>
   );
 }

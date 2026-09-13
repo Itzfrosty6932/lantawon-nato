@@ -6,9 +6,5 @@ export async function GET(req: NextRequest) {
   const mood = searchParams.get("mood") || "mind-bending";
   const page = searchParams.get("page") || "1";
   const data = await RecommendationService.getMoodRecommendations(mood, page);
-  return NextResponse.json(data, {
-    headers: {
-      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
-    },
-  });
+  return NextResponse.json(data);
 }

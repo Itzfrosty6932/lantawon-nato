@@ -68,6 +68,7 @@ export interface SearchTabCounts {
   anime: number;
   person: number;
   collection: number;
+  company: number;
 }
 
 export interface SmartRelaxationSuggestion {
@@ -100,6 +101,12 @@ export interface UnifiedSearchResponse {
     poster_path: string | null;
     backdrop_path: string | null;
     overview?: string;
+  }>;
+  companies?: Array<{
+    id: number;
+    name: string;
+    logo_path?: string | null;
+    origin_country?: string;
   }>;
   relaxation?: SmartRelaxationSuggestion[];
   totalResults: number;

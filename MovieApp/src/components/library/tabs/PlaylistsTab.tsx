@@ -12,6 +12,7 @@ import {
 import { SmartImage } from "@/components/ui/SmartImage";
 import { TMDB_IMAGE_CONFIG } from "@/lib/config/tmdb-images";
 import { audioFX } from "@/lib/audio/audio-fx";
+import { LibraryCardActionsMenu } from "@/components/library/LibraryCardActionsMenu";
 import type { PlaylistRecord, PlaylistItem } from "@/types/storage";
 
 interface PlaylistsTabProps {
@@ -54,10 +55,11 @@ export function PlaylistsTab({
               {!activePlaylist.isSystem && (
                 <button
                   onClick={() => onDeletePlaylist(activePlaylist.id)}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-rose-400 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                  title="Delete Playlist"
+                  aria-label="Delete Playlist"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Delete Playlist</span>
+                  <Trash2 className="h-4 w-4" />
                 </button>
               )}
             </div>
@@ -85,39 +87,55 @@ export function PlaylistsTab({
               {activePlaylist.items.map((item: PlaylistItem, idx: number) => (
                 <div
                   key={`pl_item_${item.id}_${idx}`}
-                  className="relative rounded-xl overflow-hidden bg-[#18191a] group flex flex-col justify-between border border-zinc-800/80 shadow-sm"
+                  className="relative rounded-xl overflow-visible bg-[#18191a] group flex flex-col justify-between border border-zinc-800/80 hover:border-zinc-600 transition-all shadow-sm"
                 >
-                  <div className="aspect-[2/3] w-full bg-zinc-950 overflow-hidden relative">
-                    <SmartImage
-                      src={
-                        item.posterPath
-                          ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${item.posterPath.startsWith("/") ? "" : "/"}${item.posterPath}`
-                          : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
-                      }
-                      alt={item.title}
-                      fallbackType="poster"
-                      containerClassName="h-full w-full"
-                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 z-10">
-                      <Link
-                        href={`/watch/${item.id}?type=${item.mediaType}`}
-                        onClick={() => audioFX.playClick()}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-zinc-950 font-bold shadow-md hover:scale-105 transition-transform"
-                        title="Play Now"
-                      >
-                        <Play className="h-4 w-4 fill-current ml-0.5" />
-                      </Link>
-                      <button
-                        onClick={() => onRemoveFromPlaylist(activePlaylist.id, item.id)}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#242526] text-rose-400 hover:bg-rose-500/20 transition-colors border border-zinc-700/80"
-                        title="Remove from Playlist"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                  <div className="aspect-[2/3] w-full bg-zinc-950 rounded-t-xl overflow-hidden relative">
+                    <Link
+                      href={`/watch/${item.id}?type=${item.mediaType}`}
+                      onClick={() => audioFX.playClick()}
+                      className="block h-full w-full relative"
+                    >
+                      <SmartImage
+                        src={
+                          item.posterPath
+                            ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${item.posterPath.startsWith("/") ? "" : "/"}${item.posterPath}`
+                            : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
+                        }
+                        alt={item.title}
+                        fallbackType="poster"
+                        containerClassName="h-full w-full"
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                      />
+
+                      {/* Desktop Hover Quick Play Button */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex items-center justify-center pointer-events-none z-10">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-zinc-950 font-bold shadow-lg transform group-hover:scale-105 transition-transform">
+                          <Play className="h-4 w-4 fill-current ml-0.5" />
+                        </div>
+                      </div>
+                    </Link>
+
+                    {/* 3-Dots Mobile & Tablet Menu (Always Accessible) */}
+                    <div className="absolute top-2 right-2 z-20">
+                      <LibraryCardActionsMenu
+                        item={{
+                          id: item.id,
+                          title: item.title,
+                          mediaType: item.mediaType as any,
+                          posterPath: item.posterPath,
+                          year: item.year,
+                        }}
+                        onRemove={() => onRemoveFromPlaylist(activePlaylist.id, item.id)}
+                        removeLabel="Remove from Playlist"
+                      />
                     </div>
                   </div>
-                  <div className="p-2.5">
+
+                  <Link
+                    href={`/watch/${item.id}?type=${item.mediaType}`}
+                    onClick={() => audioFX.playClick()}
+                    className="p-2.5 block hover:text-white"
+                  >
                     <div className="font-heading text-xs font-bold text-white truncate">
                       {item.title}
                     </div>
@@ -127,7 +145,7 @@ export function PlaylistsTab({
                       </span>
                       {item.year && <span>{item.year}</span>}
                     </div>
-                  </div>
+                  </Link>
                 </div>
               ))}
             </div>

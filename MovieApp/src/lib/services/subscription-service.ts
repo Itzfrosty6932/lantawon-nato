@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { withCanonicalPrice } from "@/lib/constants/pricing";
 
 export interface SubscriptionPackage {
   id: string;
@@ -95,7 +96,7 @@ export class SubscriptionService {
       return [];
     }
 
-    return data || [];
+    return (data || []).map(withCanonicalPrice);
   }
 
   /**
@@ -114,7 +115,7 @@ export class SubscriptionService {
       return null;
     }
 
-    return data;
+    return withCanonicalPrice(data);
   }
 
   /**
@@ -329,7 +330,7 @@ export class SubscriptionService {
       return null;
     }
 
-    return data;
+    return withCanonicalPrice(data);
   }
 }
 

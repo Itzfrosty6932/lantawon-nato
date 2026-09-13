@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Building2, Film, Sparkles, ChevronRight } from "lucide-react";
 import { audioFX } from "@/lib/audio/audio-fx";
@@ -91,6 +91,30 @@ const FEATURED_STUDIOS: StudioEntry[] = [
 
 export default function StudiosCatalogPage() {
   const [search, setSearch] = useState("");
+  const [logos, setLogos] = useState<Record<number, string | null>>({});
+  const [brokenLogos, setBrokenLogos] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      FEATURED_STUDIOS.map(async (studio) => {
+        try {
+          const res = await fetch(`/api/catalog/brand?kind=company&id=${studio.id}`);
+          if (!res.ok) return [studio.id, null] as const;
+          const data = await res.json();
+          return [studio.id, data.logo_path as string | null] as const;
+        } catch {
+          return [studio.id, null] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setLogos(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = FEATURED_STUDIOS.filter((s) =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -137,8 +161,19 @@ export default function StudiosCatalogPage() {
           >
             <div>
               <div className="flex items-center gap-3 mb-2.5">
-                <div className="h-9 w-9 rounded-lg bg-zinc-800 flex items-center justify-center text-amber-400 font-mono font-bold text-xs border border-zinc-700/60 shrink-0">
-                  {studio.countryCode}
+                <div className="h-9 w-9 rounded-lg bg-white flex items-center justify-center overflow-hidden border border-zinc-700/60 shrink-0">
+                  {logos[studio.id] && !brokenLogos[studio.id] ? (
+                    <img
+                      src={`https://image.tmdb.org/t/p/w300${logos[studio.id]}`}
+                      alt={studio.name}
+                      onError={() => setBrokenLogos((prev) => ({ ...prev, [studio.id]: true }))}
+                      className="max-h-full max-w-full object-contain p-1"
+                    />
+                  ) : (
+                    <span className="text-amber-500 font-mono font-bold text-xs">
+                      {studio.countryCode}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-white group-hover:text-amber-400 transition-colors">

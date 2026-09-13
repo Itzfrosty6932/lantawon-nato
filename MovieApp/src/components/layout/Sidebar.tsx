@@ -11,8 +11,8 @@ import {
   Heart,
   Hourglass,
   Sliders,
-  Trophy,
   Info,
+  Flame,
 } from "lucide-react";
 import { audioFX } from "@/lib/audio/audio-fx";
 
@@ -29,8 +29,6 @@ export function Sidebar() {
   ];
 
   const bottomNav = [
-    { code: "LB", label: "HALL OF LEGENDS // LEADERBOARD", href: "/leaderboard", icon: Trophy },
-    { code: "XP", label: "RADIANITE // ACHIEVEMENTS", href: "/achievements", icon: Star },
     { code: "SYS", label: "SYSTEM // SHORTCUTS", href: "/statistics", icon: Info },
   ];
 

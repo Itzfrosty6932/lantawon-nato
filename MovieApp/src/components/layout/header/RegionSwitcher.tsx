@@ -52,11 +52,11 @@ export function RegionSwitcher() {
           audioFX.playPop();
           setIsOpen((prev) => !prev);
         }}
-        className="h-8 sm:h-9 px-3 rounded-lg bg-[#242526] hover:bg-[#3a3b3c] flex items-center gap-1.5 text-zinc-300 hover:text-white transition-all cursor-pointer border border-zinc-700/80 shrink-0 font-medium"
+        className="h-8 sm:h-9 px-2 sm:px-3 rounded-lg bg-[#242526] hover:bg-[#3a3b3c] flex items-center gap-1 sm:gap-1.5 text-zinc-300 hover:text-white transition-all cursor-pointer border border-zinc-700/80 shrink-0 font-medium"
         title="Streaming Region"
       >
-        <span className="text-xs font-mono font-bold text-white tracking-wider">{selectedCountry.code}</span>
-        <ChevronDown className={`h-3 w-3 text-zinc-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <span className="text-[11px] sm:text-xs font-mono font-bold text-white tracking-wider">{selectedCountry.code}</span>
+        <ChevronDown className={`h-3 w-3 text-zinc-400 transition-transform hidden sm:block ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (

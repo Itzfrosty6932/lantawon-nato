@@ -167,7 +167,7 @@ function HistoryRow({
           e.stopPropagation();
           onDelete();
         }}
-        className="p-1.5 rounded-lg text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+        className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0 opacity-90 md:opacity-0 md:group-hover:opacity-100"
         title="Remove"
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -180,11 +180,9 @@ function HistoryRow({
 
 function StatsPanel({
   watchlist,
-  favorites,
   history,
 }: {
   watchlist: LibraryItemRecord[];
-  favorites: LibraryItemRecord[];
   history: WatchHistoryRecord[];
 }) {
   const totalWatchedMins = history.reduce((acc, h) => {
@@ -208,7 +206,7 @@ function StatsPanel({
         {[
           {
             label: "Total Tracked",
-            value: watchlist.length + favorites.length + history.length,
+            value: watchlist.length + history.length,
             icon: <BarChart2 className="h-3.5 w-3.5 text-violet-400" />,
             color: "text-white",
           },
@@ -225,10 +223,10 @@ function StatsPanel({
             color: "text-cyan-400",
           },
           {
-            label: "Favorites",
-            value: favorites.length,
-            icon: <Heart className="h-3.5 w-3.5 text-rose-400" />,
-            color: "text-rose-400",
+            label: "History Titles",
+            value: history.length,
+            icon: <Clock className="h-3.5 w-3.5 text-amber-400" />,
+            color: "text-amber-400",
           },
         ].map((s) => (
           <div
@@ -296,23 +294,33 @@ export function LibraryDrawer({
   const router = useRouter();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<
-    "watchlist" | "favorites" | "history" | "stats"
-  >("watchlist");
+    "history" | "watchlist" | "stats"
+  >("history");
   const [watchlistItems, setWatchlistItems] = useState<LibraryItemRecord[]>([]);
-  const [favoriteItems, setFavoriteItems] = useState<LibraryItemRecord[]>([]);
   const [historyItems, setHistoryItems] = useState<WatchHistoryRecord[]>([]);
 
   const loadData = async () => {
     try {
       await db.migrateFromLocalStorage();
       const allLibrary = await db.libraryItems.toArray();
-      setWatchlistItems(allLibrary.filter((i) => i.inWatchlist));
-      setFavoriteItems(allLibrary.filter((i) => i.isFavorite));
+      setWatchlistItems(allLibrary.filter((i) => i.inWatchlist || i.isFavorite));
+      
       const allHistory = await db.watchHistory
         .orderBy("lastWatchedAt")
         .reverse()
         .toArray();
-      setHistoryItems(allHistory);
+
+      // Strictly deduplicate by mediaId so titles never repeat
+      const seenMedia = new Set<string>();
+      const uniqueHist: WatchHistoryRecord[] = [];
+      for (const h of allHistory) {
+        const key = String(h.mediaId);
+        if (!seenMedia.has(key)) {
+          seenMedia.add(key);
+          uniqueHist.push(h);
+        }
+      }
+      setHistoryItems(uniqueHist);
     } catch {}
   };
 
@@ -331,13 +339,9 @@ export function LibraryDrawer({
   const handleClearTab = async () => {
     audioFX.playPop();
     if (activeTab === "watchlist") {
-      await db.libraryItems.filter((i) => i.inWatchlist).modify({ inWatchlist: false });
+      await db.libraryItems.filter((i) => i.inWatchlist || i.isFavorite).modify({ inWatchlist: false, isFavorite: false });
       setWatchlistItems([]);
       showToast("Watchlist cleared", "info");
-    } else if (activeTab === "favorites") {
-      await db.libraryItems.filter((i) => i.isFavorite).modify({ isFavorite: false });
-      setFavoriteItems([]);
-      showToast("Favorites cleared", "info");
     } else if (activeTab === "history") {
       await db.clearAllHistory();
       setHistoryItems([]);
@@ -347,9 +351,8 @@ export function LibraryDrawer({
   };
 
   const tabs = [
-    { id: "watchlist", label: "Watchlist", icon: Bookmark, count: watchlistItems.length },
-    { id: "favorites", label: "Favorites", icon: Heart, count: favoriteItems.length },
     { id: "history", label: "History", icon: Clock, count: historyItems.length },
+    { id: "watchlist", label: "Watchlist", icon: Bookmark, count: watchlistItems.length },
     { id: "stats", label: "Stats", icon: BarChart2 },
   ];
 
@@ -437,33 +440,6 @@ export function LibraryDrawer({
             </>
           )}
 
-          {/* Favorites — 2-col poster grid */}
-          {activeTab === "favorites" && (
-            <>
-              {favoriteItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                  <Heart className="h-10 w-10 text-zinc-700" />
-                  <div className="text-sm font-bold text-zinc-500">No favorites yet</div>
-                  <p className="text-xs text-zinc-600 max-w-[200px]">
-                    Heart any title to save it here
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {favoriteItems.map((item) => (
-                    <PosterCard
-                      key={item.id}
-                      item={item}
-                      onPlay={() =>
-                        handleNavigate(`/watch/${item.id}?type=${item.mediaType}`)
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
           {/* History — enhanced list */}
           {activeTab === "history" && (
             <>
@@ -500,7 +476,6 @@ export function LibraryDrawer({
           {activeTab === "stats" && (
             <StatsPanel
               watchlist={watchlistItems}
-              favorites={favoriteItems}
               history={historyItems}
             />
           )}

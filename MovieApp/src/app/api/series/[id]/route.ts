@@ -10,9 +10,5 @@ export async function GET(
   if (!series) {
     return NextResponse.json({ error: "Series not found" }, { status: 404 });
   }
-  return NextResponse.json(series, {
-    headers: {
-      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
-    },
-  });
+  return NextResponse.json(series);
 }

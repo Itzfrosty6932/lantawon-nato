@@ -37,25 +37,7 @@ export function SaveToPlaylistModal({ isOpen, onClose, item }: SaveToPlaylistMod
   // Load playlists from Dexie DB
   const loadPlaylists = async () => {
     try {
-      let list = await db.playlists.toArray();
-      // Ensure default "Watch Later" exists
-      const watchLaterKey = LantawonDatabase.playlistKey(GUEST_USER_ID, "watch_later");
-      const watchLaterExists = list.some((p) => p.id === watchLaterKey);
-      if (!watchLaterExists) {
-        const defaultWatchLater: PlaylistRecord = {
-          id: watchLaterKey,
-          userId: GUEST_USER_ID,
-          title: "Watch Later",
-          description: "Default queue for saved movies & series",
-          isSystem: true,
-          itemCount: 0,
-          items: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await db.playlists.put(defaultWatchLater);
-        list = [defaultWatchLater, ...list];
-      }
+      const list = await db.getUnifiedPlaylists(GUEST_USER_ID);
       setPlaylists(list);
     } catch (err) {
       console.error("Failed to load playlists", err);

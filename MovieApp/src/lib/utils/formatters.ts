@@ -18,6 +18,23 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
+export function formatDataSizeMb(mb: number): string {
+  if (!mb || mb <= 0) return "0 MB";
+  if (mb < 1) {
+    const kb = Math.round(mb * 1024);
+    return `${kb} KB`;
+  }
+  if (mb >= 1024 * 1024) {
+    const tb = (mb / (1024 * 1024)).toFixed(1);
+    return `${tb} TB`;
+  }
+  if (mb >= 1024) {
+    const gb = (mb / 1024).toFixed(1);
+    return `${gb} GB`;
+  }
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
 export function sanitizeFilename(name: string): string {
   return (name || "Untitled")
     .replace(/[/\\?%*:|"<>]/g, "-")

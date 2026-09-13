@@ -21,6 +21,8 @@ export default function CartoonsCatalogPage() {
           icon: Sparkles,
           accentColor: "text-amber-400",
           defaultMediaType: "all",
+          forcedGenre: "16",
+          showMediaTypeFilter: true,
           showGenreFilter: true,
           showEraFilter: true,
           showCountryFilter: true,

@@ -9,6 +9,7 @@ import type { MediaItem } from "@/types/media";
 
 interface MediaShelfProps {
   title: string;
+  subtitle?: string;
   icon?: React.ComponentType<{ className?: string }>;
   seeAllHref?: string;
   items: MediaItem[];
@@ -17,6 +18,7 @@ interface MediaShelfProps {
 
 export function MediaShelf({
   title,
+  subtitle,
   icon: Icon,
   seeAllHref,
   items,
@@ -60,7 +62,6 @@ export function MediaShelf({
       const isTablet = window.innerWidth < 768;
       const expandDelta = isMobile ? 145 : isTablet ? 190 : 210;
 
-      // If the expanded card would peek beyond the right edge, smoothly scroll track
       const overflowRight = (cardRect.left + cardRect.width + expandDelta) - containerRect.right;
       if (overflowRight > 0) {
         scrollRef.current.scrollBy({
@@ -75,25 +76,29 @@ export function MediaShelf({
 
   return (
     <section className="space-y-3.5 select-none group/shelf relative">
-      {/* Shelf Header */}
+      {/* ─── Shelf Header with Red Vertical Accent (Screenshots 2 & 3) ─── */}
       <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {Icon && (
-            <Icon className="h-5 w-5 text-zinc-400 shrink-0" />
-          )}
-          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2 flex-wrap">
-            <span>{title}</span>
-          </h2>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-1.5 h-7 sm:h-8 bg-[#E50914] rounded-full shrink-0" />
+          <div>
+            <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+              {Icon && <Icon className="h-5 w-5 text-zinc-400 shrink-0" />}
+              <span>{title}</span>
+            </h2>
+            {subtitle && (
+              <p className="text-xs text-zinc-400 font-medium mt-0.5">{subtitle}</p>
+            )}
+          </div>
         </div>
 
         {seeAllHref && (
           <Link
             href={seeAllHref}
             onClick={() => audioFX.playClick()}
-            className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-zinc-300 hover:text-white transition-all bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 shrink-0 whitespace-nowrap ml-auto group/btn shadow-sm"
+            className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-zinc-300 hover:text-white transition-all bg-white/5 hover:bg-white/10 px-3.5 py-1.5 rounded-full border border-white/10 shrink-0 whitespace-nowrap ml-auto group/btn shadow-sm"
           >
             <span>See All</span>
-            <ArrowRight className="h-3.5 w-3.5 text-[#E31937] transition-transform group-hover/btn:translate-x-0.5" />
+            <ArrowRight className="h-3.5 w-3.5 text-[#E50914] transition-transform group-hover/btn:translate-x-0.5" />
           </Link>
         )}
       </div>

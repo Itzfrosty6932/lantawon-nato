@@ -10,9 +10,5 @@ export async function GET(
   if (!movie) {
     return NextResponse.json({ error: "Movie not found" }, { status: 404 });
   }
-  return NextResponse.json(movie, {
-    headers: {
-      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
-    },
-  });
+  return NextResponse.json(movie);
 }

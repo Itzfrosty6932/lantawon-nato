@@ -5,9 +5,12 @@
  * Minimizes mobile data consumption during browsing so data is only spent on video streams.
  */
 
-const STATIC_CACHE_NAME = "lantawon-static-v2";
-const IMAGE_CACHE_NAME = "lantawon-images-v2";
-const API_CACHE_NAME = "lantawon-api-v2";
+// Bump these on any change to the caching strategies below. The activate handler
+// deletes every cache whose name it no longer recognises, so a version bump is
+// what evicts entries a previous worker stored under the old rules.
+const STATIC_CACHE_NAME = "lantawon-static-v3";
+const IMAGE_CACHE_NAME = "lantawon-images-v3";
+const API_CACHE_NAME = "lantawon-api-v3";
 
 const OFFLINE_URLS = [
   "/manifest.json",
@@ -43,6 +46,34 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
+
+// A cross-origin <img> request carries credentials mode "include". Re-issuing it
+// as CORS without clearing that makes the browser reject `Access-Control-Allow-Origin: *`,
+// which is exactly what TMDB and wsrv.nl send — so every poster, avatar and studio
+// logo failed and fell through to the placeholder SVG. Anonymous CORS gets a
+// readable (status 200, cacheable) response; opaque no-cors is the last resort so
+// a host without CORS headers still renders, just uncached.
+async function fetchImage(request) {
+  const cache = await caches.open(IMAGE_CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  const sameOrigin = new URL(request.url).origin === self.location.origin;
+
+  try {
+    const response = await fetch(
+      sameOrigin
+        ? request
+        : new Request(request.url, { mode: "cors", credentials: "omit" })
+    );
+    if (response.status === 200) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return fetch(request).catch(() => new Response("", { status: 504 }));
+  }
+}
 
 // 3. Fetch Interceptor with Smart Caching Strategies
 self.addEventListener("fetch", (event) => {
@@ -102,22 +133,7 @@ self.addEventListener("fetch", (event) => {
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".svg")
   ) {
-    event.respondWith(
-      caches.open(IMAGE_CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(request);
-        if (cached) return cached;
-
-        try {
-          const networkResponse = await fetch(request, { mode: "cors" });
-          if (networkResponse && networkResponse.status === 200) {
-            cache.put(request, networkResponse.clone());
-          }
-          return networkResponse;
-        } catch {
-          return cached || new Response("", { status: 404 });
-        }
-      })
-    );
+    event.respondWith(fetchImage(request));
     return;
   }
 

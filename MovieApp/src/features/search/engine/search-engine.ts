@@ -28,6 +28,7 @@ export class SearchEngine {
     let rawMediaItems: MediaItem[] = [];
     let peopleResults: Array<any> = [];
     let collectionResults: Array<any> = [];
+    let companyResults: Array<{ id: number; name: string; logo_path?: string | null; origin_country?: string }> = [];
     let totalPages = 10;
 
     // 1. QUERY EXECUTION BASED ON INTENT
@@ -196,8 +197,10 @@ export class SearchEngine {
         });
         peopleResults = sortedPeople.slice(0, 4);
       }
+      if (companySearch?.results) {
+        companyResults = companySearch.results.slice(0, 6);
+      }
     } else {
-      // ── E. BROWSE CATALOG (no text query) ────────────────────────────────
       const tmdbSort = sortBy === "best_match" ? "popularity.desc" : sortBy;
 
       // Split genres: numeric IDs go to with_genres, string theme IDs go to with_keywords
@@ -279,14 +282,48 @@ export class SearchEngine {
           p["vote_count.gte"] = "5"; // Accessible to international and indie titles
         }
 
-        // Era/Year — strict per-endpoint date field, capped to today so 2027-2038 unreleased films never appear
+        // Era/Year — strict per-endpoint date field, capped to today so 2027-2038 unreleased films never appear.
+        // Supports both a single `year` (with optional `month`) and a `year_start`..`year_end` range.
         const dateGte = isTV ? "first_air_date.gte" : "primary_release_date.gte";
         const dateLte = isTV ? "first_air_date.lte" : "primary_release_date.lte";
-        if (params.year_start) p[dateGte] = `${params.year_start}-01-01`;
-        p[dateLte] = params.year_end ? `${params.year_end}-12-31` : todayStr;
+        if (params.year) {
+          const y = String(params.year);
+          if (params.month) {
+            const mm = String(params.month).padStart(2, "0");
+            const monthNum = parseInt(mm, 10);
+            const lastDay = new Date(parseInt(y, 10), monthNum, 0).getDate();
+            p[dateGte] = `${y}-${mm}-01`;
+            p[dateLte] = `${y}-${mm}-${String(lastDay).padStart(2, "0")}`;
+          } else {
+            p[dateGte] = `${y}-01-01`;
+            p[dateLte] = `${y}-12-31`;
+          }
+        } else if (params.year_start) {
+          p[dateGte] = `${params.year_start}-01-01`;
+          p[dateLte] = params.year_end ? `${params.year_end}-12-31` : todayStr;
+        } else if (params.year_end) {
+          p[dateLte] = `${params.year_end}-12-31`;
+        }
 
         if (params.company) p.with_companies = params.company;
         if (params.network) p.with_networks = params.network;
+
+        // TV status filter (Returning=0, Planned=1, In Production=2, Ended=3,
+        // Cancelled=4, Pilot=5) — only meaningful for TV endpoints.
+        if (isTV && params.status) {
+          const statusMap: Record<string, string> = {
+            returning: "0",
+            planned: "1",
+            in_production: "2",
+            ended: "3",
+            canceled: "4",
+            cancelled: "4",
+            pilot: "5",
+          };
+          const key = String(params.status).toLowerCase();
+          const mapped = statusMap[key] ?? (/^\d+$/.test(key) ? key : undefined);
+          if (mapped) p.with_status = mapped;
+        }
 
         // Exclude explicit erotica, softcore, and heavy nudity from general discover browse
         p.without_keywords = "190370,265738,18035,190013,9913,286461,10738,228232,237887";
@@ -373,8 +410,9 @@ export class SearchEngine {
       }
     }
 
-    // 2. RUN FILTER ENGINE
-    const filteredItems = FilterEngine.applyFilters(rawMediaItems, params, ast);
+    // 2. RUN FILTER ENGINE (Exclude media_type constraint so global tab counts are accurately calculated)
+    const baseParams = { ...params, media_type: "all" as const };
+    const filteredItems = FilterEngine.applyFilters(rawMediaItems, baseParams, ast);
 
     // 3. RUN RANKING ENGINE
     const rankedItems = RankingEngine.rankResults(filteredItems, rawQuery, sortBy);
@@ -385,28 +423,49 @@ export class SearchEngine {
       ? RankingEngine.detectTypoCorrection(rawQuery, candidateTitles)
       : null;
 
-    // 5. CALCULATE TAB COUNTS
+    // Helper for detecting Anime items accurately (Movies & TV Series)
+    const isAnimeMedia = (i: MediaItem): boolean => {
+      const isAnimation = i.genre_ids?.includes(16);
+      const isEastAsian =
+        i.origin_country?.some((c) => ["JP", "KR", "CN"].includes(c)) ||
+        ["ja", "ko", "zh"].includes(i.original_language || "");
+      const titleLower = (i.title || i.name || "").toLowerCase();
+      const isAnimeKeyword =
+        titleLower.includes("anime") ||
+        titleLower.includes("solo leveling") ||
+        titleLower.includes("attack on titan") ||
+        titleLower.includes("demon slayer") ||
+        titleLower.includes("jujutsu kaisen") ||
+        titleLower.includes("naruto") ||
+        titleLower.includes("one piece") ||
+        titleLower.includes("dragon ball") ||
+        titleLower.includes("bleach") ||
+        titleLower.includes("hunter x hunter") ||
+        titleLower.includes("death note") ||
+        titleLower.includes("chainsaw man");
+
+      return isAnimation || (isEastAsian && isAnimation) || isAnimeKeyword;
+    };
+
+    // 5. CALCULATE TAB COUNTS (From full ranked search set)
     const tabCounts: SearchTabCounts = {
-      all: rankedItems.length + peopleResults.length + collectionResults.length,
+      all: rankedItems.length + peopleResults.length + collectionResults.length + companyResults.length,
       movie: rankedItems.filter((i) => (i.media_type || (i.title ? "movie" : "tv")) === "movie").length,
       tv: rankedItems.filter((i) => (i.media_type || (i.title ? "movie" : "tv")) === "tv").length,
-      anime: rankedItems.filter(
-        (i) => i.origin_country?.includes("JP") || i.original_language === "ja" || i.genre_ids?.includes(16)
-      ).length,
+      anime: rankedItems.filter(isAnimeMedia).length,
       person: peopleResults.length,
       collection: collectionResults.length,
+      company: companyResults.length,
     };
 
     // 6. FILTER BY SELECTED TAB
     let finalItems = rankedItems;
     if (activeTab === "movie") {
-      finalItems = rankedItems.filter((i) => (i.media_type || "movie") === "movie");
+      finalItems = rankedItems.filter((i) => (i.media_type || (i.title ? "movie" : "tv")) === "movie");
     } else if (activeTab === "tv") {
-      finalItems = rankedItems.filter((i) => i.media_type === "tv");
+      finalItems = rankedItems.filter((i) => (i.media_type || (i.title ? "movie" : "tv")) === "tv");
     } else if (activeTab === "anime") {
-      finalItems = rankedItems.filter(
-        (i) => i.origin_country?.includes("JP") || i.original_language === "ja" || i.genre_ids?.includes(16)
-      );
+      finalItems = rankedItems.filter(isAnimeMedia);
     }
 
     // 7. SMART RELAXATION (If 0 results found)
@@ -424,6 +483,7 @@ export class SearchEngine {
       results: finalItems,
       people: activeTab === "all" || activeTab === "person" ? peopleResults : [],
       collections: activeTab === "all" || activeTab === "collection" ? collectionResults : [],
+      companies: activeTab === "all" || activeTab === "company" ? companyResults : [],
       relaxation,
       totalResults: finalItems.length,
       page,

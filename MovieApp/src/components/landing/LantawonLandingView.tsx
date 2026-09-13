@@ -42,6 +42,9 @@ import {
 } from "@/lib/services/subscription-service";
 import type { MediaItem } from "@/types/media";
 import { TMDB_IMAGE_CONFIG } from "@/lib/config/tmdb-images";
+import { SOLO_PASS_PRICE_PHP } from "@/lib/constants/pricing";
+import { SmartImage } from "@/components/ui/SmartImage";
+import { BraveTopBanner, BraveFeatureSection } from "@/components/landing/BraveBrowserCallout";
 
 const GENRE_MAP: Record<number, string> = {
   28: "Action",
@@ -89,7 +92,7 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
 
   // The single plan's pricing — falls back to the canonical Solo Pass when
   // the DB has no active package (fresh install / outage).
-  const planPrice = plan ? Math.round(plan.price_php) : 349;
+  const planPrice = plan ? Math.round(plan.price_php) : SOLO_PASS_PRICE_PHP;
   const promoActive = plan ? isPromoLive(plan) : false;
   const promoPrice = promoActive && plan ? getPromoPrice(plan) : null;
   const promoText =
@@ -186,16 +189,16 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
       a: (
         <div className="space-y-3">
           <p>
-            The Lantawon Solo Pass is an all-inclusive membership at <strong>₱349 / month</strong> that gives you unrestricted access to the entire movie, teleserye, TV series, anime, and documentary catalog in high definition with zero ads.
+            The Lantawon Solo Pass is an all-inclusive membership at <strong>₱{planPrice} / month</strong> that gives you unrestricted access to the entire movie, teleserye, TV series, anime, and documentary catalog in high definition across 14+ cloud mirrors.
           </p>
           <p>
             You can stream seamlessly across all your supported devices—including Smart TVs, mobile phones, tablets, laptops, and desktop computers—with <strong>1 active streaming screen</strong> at a time.
           </p>
-          <div className="p-3.5 bg-black/60 border border-zinc-800 space-y-1.5 font-mono text-xs text-zinc-300 rounded-xl">
+          <div className="space-y-1 text-xs text-zinc-300">
             <p className="font-bold text-white mb-1">Membership Highlights:</p>
             <p>💎 1080p Full HD Streaming Quality (depends on server source)</p>
             <p>⚡ 14 Resilient Multi-CDN Cloud Mirrors with Instant Failover</p>
-            <p>🚫 100% Zero Ads and Zero Interruptions</p>
+            <p>🚫 Clean UI and Zero Site Popups</p>
             <p>📱 1 Active Streaming Screen on Any Device</p>
             <p>⭐ Personal Watchlist, Favorites &amp; Watch History</p>
             <p>📅 No long-term lock-in contract — cancel anytime.</p>
@@ -205,7 +208,19 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
     },
     {
       q: "Are there ads while watching?",
-      a: "Lantawon Nato does not display pop-up ads or interruptions over the player while you are watching. Some third-party streaming providers may embed their own promotional overlays, but we offer multiple mirror options to ensure the cleanest viewing experience.",
+      a: (
+        <div className="space-y-3">
+          <p className="text-zinc-300">
+            <strong className="text-white">Lantawon Nato itself does not serve any ads.</strong> Our platform, player, and catalog are completely ad-free — we don't inject banners, popups, pre-rolls, or overlays.
+          </p>
+          <p className="text-zinc-300">
+            However, some <strong>third-party streaming servers</strong> (the mirrors we embed) may display their own promotional overlays or pre-rolls because they host the actual video streams on their infrastructure. We provide 14+ mirrors so you can switch to the cleanest one.
+          </p>
+          <p className="text-zinc-300">
+            <strong>Why does Brave show no ads?</strong> Brave's built-in Shields ad blocker filters ad requests at the network level — even inside cross-origin iframes. Chrome, Safari, and Firefox don't have this by default. For the cleanest experience on other browsers, we recommend installing <strong>uBlock Origin</strong> or <strong>AdGuard</strong> (also available on iOS via the App Store). Alternatively, download <strong>Brave Browser</strong> — it blocks iframe ads out of the box.
+          </p>
+        </div>
+      ),
     },
   ];
 
@@ -246,15 +261,25 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
       description:
         "The Solo Pass includes 1 active concurrent streaming screen across all your logged-in devices.",
     },
+    {
+      icon: <Server className="h-5 w-5 text-cyan-400" />,
+      title: "We Don't Store Movies — We Index Them",
+      description:
+        "Lantawon Nato doesn't host or download any video files. We're a catalog + player: our database stores titles, posters, metadata, and mirror URLs (a few KB each). The actual video streams live on third-party servers. That's why the app is lightweight — no trillion-byte database, no massive storage costs. You're streaming directly from the source, not from us.",
+    },
   ];
 
   return (
     <div className="min-h-[100dvh] bg-[#0D0D0D] text-[#FFF8E7] selection:bg-[#E31937] selection:text-[#FFF8E7] overflow-x-hidden">
-      {/* ─── HEADER ─── */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#0D0D0D]/95 via-[#0D0D0D]/70 to-transparent backdrop-blur-sm transition-all pt-[env(safe-area-inset-top,0px)]">
+      {/* ─── HEADER WITH BRAVE BANNER ─── */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-[#0D0D0D]/95 border-b border-white/[0.08] backdrop-blur-md transition-all pt-[env(safe-area-inset-top,0px)]">
+        <BraveTopBanner />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3">
-          <Link href="/" className="flex items-center group shrink-0">
+          <Link href="/" className="flex items-center gap-2.5 sm:gap-3 group shrink-0 select-none">
             <BrandLogo size="lg" />
+            <span className="text-lg sm:text-2xl font-black tracking-tight text-white group-hover:text-[#E31937] transition-colors leading-none">
+              Lantawon Nato
+            </span>
           </Link>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -270,7 +295,7 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
       </header>
 
       {/* ─── 1. HERO BANNER ─── */}
-      <section className="relative min-h-[92vh] sm:min-h-[92dvh] flex items-center justify-center px-4 sm:px-6 lg:px-8 overflow-hidden pt-20">
+      <section className="relative min-h-[92vh] sm:min-h-[92dvh] flex items-center justify-center px-4 sm:px-6 lg:px-8 overflow-hidden pt-28 sm:pt-36">
         {/* Background Poster Mosaic with Vignette */}
         <div className="absolute inset-0 z-0">
           <Image
@@ -302,7 +327,7 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
 
           {/* Subtitle & Pricing */}
           <p className="text-base sm:text-xl text-[#A7A7A7] font-medium max-w-2xl mx-auto">
-            Starts at <span className="text-[#E31937] font-bold">₱349</span> / month. Cancel anytime.
+            Starts at <span className="text-[#E31937] font-bold">₱{planPrice}</span> / month. Cancel anytime.
           </p>
 
           {/* Action Buttons */}
@@ -435,12 +460,11 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
                   <div className="block bg-[#151515] border border-[#262626] hover:border-[#E31937] transition-all duration-300 shadow-xl hover:-translate-y-1">
                     {/* Poster Viewport (Flat) */}
                     <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0D0D0D]">
-                      <Image
+                      <SmartImage
                         src={poster}
                         alt={title}
-                        fill
-                        sizes="(max-width: 640px) 176px, 224px"
-                        className="object-cover group-hover:scale-105 transition-transform duration-500"
+                        fallbackType="poster"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#151515] via-[#151515]/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity" />
 
@@ -620,6 +644,9 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
           </div>
         </div>
       </section>
+
+      {/* ─── BRAVE BROWSER STREAMING SHOWCASE ─── */}
+      <BraveFeatureSection />
 
       {/* ─── 4. SUBSCRIPTION PACKAGES & PRICING TIER (SINGLE PLAN, ADMIN-DRIVEN) ─── */}
       <section
@@ -892,17 +919,13 @@ export function LantawonLandingView({ trendingItems, plan }: LantawonLandingView
             <div>
               {/* Backdrop / Header Image */}
               <div className="relative aspect-video sm:aspect-[16/9] w-full overflow-hidden bg-[#0D0D0D]">
-                <Image
+                <SmartImage
                   src={
-                    selectedModalItem.backdrop_path
-                      ? `${TMDB_IMAGE_CONFIG.BACKDROP_BASE}${selectedModalItem.backdrop_path}`
-                      : selectedModalItem.poster_path
-                      ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${selectedModalItem.poster_path}`
-                      : TMDB_IMAGE_CONFIG.FALLBACK_BACKDROP
+                    selectedModalItem.backdrop_path || selectedModalItem.poster_path
                   }
                   alt={selectedModalItem.title || selectedModalItem.name || "Title"}
-                  fill
-                  className="object-cover"
+                  fallbackType="backdrop"
+                  className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#151515] via-[#151515]/40 to-transparent" />
                 <div className="absolute inset-0 bg-gradient-to-r from-[#151515]/50 via-transparent to-transparent hidden sm:block" />

@@ -109,10 +109,10 @@ export function MediaCard({ item, isExpanded = false }: MediaCardProps) {
       <div
         className={`relative w-full h-full ${
           isExpanded ? "aspect-auto" : "aspect-[2/3]"
-        } overflow-hidden rounded-xl bg-[#141414] border select-none transition-colors duration-300 ${
+        } overflow-hidden rounded-lg bg-[#141414] border select-none transition-colors duration-200 ${
           isExpanded
-            ? "border-[#E31937]/50 shadow-[0_12px_32px_rgba(0,0,0,0.9),0_0_20px_rgba(227,25,55,0.25)]"
-            : "border-white/5 shadow-md"
+            ? "border-[#E50914]"
+            : "border-white/10 hover:border-[#E50914]"
         }`}
       >
         <Link
@@ -153,7 +153,7 @@ export function MediaCard({ item, isExpanded = false }: MediaCardProps) {
           )}
 
           {/* ─── 3. Top-Right Rating Badge (No Buttons) ─── */}
-          <div className="absolute top-2.5 right-2.5 flex items-center z-20">
+          <div className="absolute top-2.5 right-2.5 flex items-center z-[5]">
             <div className="flex items-center gap-1 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[#FFF8E7] text-[11px] font-bold font-mono border border-white/10 shadow-sm">
               <Star className="h-3 w-3 fill-[#FFD106] text-[#FFD106]" />
               {rating}
@@ -162,7 +162,7 @@ export function MediaCard({ item, isExpanded = false }: MediaCardProps) {
 
           {/* ─── 4. Card Content: Expanded State vs Normal Poster State (Zero Button Overlays) ─── */}
           {isExpanded ? (
-            <div className="absolute inset-0 flex flex-col justify-end p-3.5 sm:p-4 z-20 animate-in fade-in duration-300">
+            <div className="absolute inset-0 flex flex-col justify-end p-3.5 sm:p-4 z-[6] animate-in fade-in duration-300">
               <h3 className="text-[#FFF8E7] text-sm sm:text-base font-bold tracking-tight leading-tight line-clamp-1 drop-shadow-md">
                 {displayTitle}
               </h3>

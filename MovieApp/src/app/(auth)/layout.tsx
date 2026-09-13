@@ -23,6 +23,19 @@ export default function AuthLayout({
         />
       </div>
 
+      {/* Top Header with Brand Logo and Back to Landing Page */}
+      <header className="relative z-20 w-full px-4 sm:px-8 py-4 sm:py-6 flex items-center justify-between max-w-7xl mx-auto">
+        <Link href="/" className="transition-transform hover:scale-105 active:scale-95">
+          <BrandLogo size="md" />
+        </Link>
+        <Link
+          href="/"
+          className="text-xs sm:text-sm font-medium text-zinc-400 hover:text-white flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-colors shadow-sm"
+        >
+          <span>← Back to Landing Page</span>
+        </Link>
+      </header>
+
       {/* Main Viewport (Centered) */}
       <main className="relative z-20 flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8">
         {children}

@@ -10,9 +10,5 @@ export async function GET(
   if (!seasonData) {
     return NextResponse.json({ error: "Season not found" }, { status: 404 });
   }
-  return NextResponse.json(seasonData, {
-    headers: {
-      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
-    },
-  });
+  return NextResponse.json(seasonData);
 }

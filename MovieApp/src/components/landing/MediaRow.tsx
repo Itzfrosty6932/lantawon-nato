@@ -1,22 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { Star } from "lucide-react";
 import type { MediaItem } from "@/types/media";
 import { TMDB_IMAGE_CONFIG } from "@/lib/config/tmdb-images";
+import { SmartImage } from "@/components/ui/SmartImage";
 
 interface MediaCardProps {
   item: MediaItem;
   priority?: boolean;
 }
 
-export function MediaCard({ item, priority = false }: MediaCardProps) {
+export function MediaCard({ item }: MediaCardProps) {
   const mediaType = item.media_type || (item.title ? "movie" : "tv");
   const title = item.title || item.name || "Untitled";
   const year = (item.release_date || item.first_air_date || "").split("-")[0];
   const posterUrl = item.poster_path
     ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${item.poster_path}`
+    : item.backdrop_path
+    ? `${TMDB_IMAGE_CONFIG.BACKDROP_BASE}${item.backdrop_path}`
     : TMDB_IMAGE_CONFIG.FALLBACK_POSTER;
   const rating = item.vote_average ? item.vote_average.toFixed(1) : null;
 
@@ -26,13 +28,11 @@ export function MediaCard({ item, priority = false }: MediaCardProps) {
       className="group block space-y-2 flex-shrink-0"
     >
       <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 group-hover:border-[#E50914]/50 transition-all">
-        <Image
+        <SmartImage
           src={posterUrl}
           alt={title}
-          fill
-          sizes="(max-width: 768px) 40vw, 20vw"
-          className="object-cover group-hover:scale-105 transition-transform duration-300"
-          priority={priority}
+          fallbackType="poster"
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
         {rating && (
           <div className="absolute top-2 right-2 px-2 py-1 rounded-lg bg-black/80 backdrop-blur-sm flex items-center gap-1">

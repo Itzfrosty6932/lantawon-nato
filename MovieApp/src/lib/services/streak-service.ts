@@ -1,40 +1,35 @@
 "use client";
 
 import { db } from "@/lib/db/dexie-db";
-import type { WatchHistoryRecord } from "@/types/storage";
+
+export interface HeatmapDay {
+  dateStr: string;
+  dayOfWeek: number; // 0 = Mon, 1 = Tue, 2 = Wed, 3 = Thu, 4 = Fri, 5 = Sat, 6 = Sun
+  active: boolean;
+  isToday: boolean;
+  isFuture: boolean;
+}
 
 export interface DailyStreakInfo {
   currentStreak: number;
   longestStreak: number;
   lastWatchDate: string | null;
   hasWatchedToday: boolean;
-  streakWeek: { day: string; dateStr: string; active: boolean; isToday: boolean }[];
   totalDaysActive: number;
-  dailyRewardClaimed: boolean;
+  hoursUntilReset: number;
+  activeDates: string[];
+  heatmapWeeks: HeatmapDay[][];
+  monthsHeader: { name: string; weekIndex: number }[];
+  currentWeekIndex: number;
 }
 
-// Per-user keys. Streak data MUST be scoped to the account that earned it —
-// an unscoped key let stale/demo values bleed into freshly created accounts.
-const storageKey = (userId: string) => `lantawon_streak_data_${userId}`;
-const claimKey = (userId: string) => `lantawon_streak_claim_${userId}`;
-
-/** Legacy unscoped keys from the pre-scoping era — cleaned on first run. */
-const LEGACY_STORAGE_KEY = "lantawon_streak_data";
-const LEGACY_DAILY_CLAIM_KEY = "lantawon_streak_claim_date";
-let legacyCleaned = false;
-
-function cleanLegacyKeys() {
-  if (legacyCleaned || typeof window === "undefined") return;
-  try {
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_DAILY_CLAIM_KEY);
-  } catch {}
-  legacyCleaned = true;
-}
+// Scoped storage keys
+const storageDatesKey = (userId: string) => `lantawon_streak_dates_${userId}`;
+const streakNotifiedKey = (userId: string, dateStr: string) => `lantawon_streak_notif_${userId}_${dateStr}`;
 
 export class StreakService {
   /**
-   * Get the current date in YYYY-MM-DD local format
+   * Get current local date string in YYYY-MM-DD
    */
   static getTodayStr(): string {
     const d = new Date();
@@ -42,56 +37,145 @@ export class StreakService {
   }
 
   private static safeGetUserId(userId?: string | null): string {
-    return userId && userId.trim() ? userId : "anonymous";
+    return userId && userId.trim() && userId !== "guest" ? userId : "anonymous";
   }
 
   /**
-   * Calculate consecutive WATCH days for a specific user.
-   *
-   * CANONICAL RULE: a streak day counts ONLY when the user actually watched
-   * something (a history record was written with real playback). Merely
-   * logging in or opening the site never creates a streak.
-   *
-   * The streak is derived purely from the user's own Dexie history — no
-   * localStorage fallback can inflate it.
+   * Get all active watch dates from Dexie DB + localStorage fallback
+   */
+  static async getActiveDates(uid: string): Promise<Set<string>> {
+    const activeDateSet = new Set<string>();
+
+    // 1. Read from localStorage fallback
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(storageDatesKey(uid));
+        if (stored) {
+          const parsed: string[] = JSON.parse(stored);
+          parsed.forEach((d) => {
+            if (d && typeof d === "string") activeDateSet.add(d.trim());
+          });
+        }
+      } catch {}
+    }
+
+    // 2. Query IndexedDB watch history
+    try {
+      const records = await db.watchHistory
+        .filter((h) => h.userId === uid || (uid === "anonymous" && (!h.userId || h.userId === "guest" || h.userId === "anonymous")))
+        .toArray();
+
+      for (const h of records) {
+        if (!h.lastWatchedAt) continue;
+
+        // Parse ISO string split
+        const isoDate = h.lastWatchedAt.split("T")[0];
+        if (isoDate) activeDateSet.add(isoDate);
+
+        // Parse local date representation
+        try {
+          const d = new Date(h.lastWatchedAt);
+          if (!isNaN(d.getTime())) {
+            const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            activeDateSet.add(localStr);
+          }
+        } catch {}
+      }
+    } catch {}
+
+    return activeDateSet;
+  }
+
+  /**
+   * Generate continuous Monday-first annual heatmap grid for 2026
+   */
+  static generateAnnualHeatmap(activeDateSet: Set<string>, todayStr: string) {
+    const today = new Date();
+    const currentYear = today.getFullYear(); // 2026
+
+    // Start from Jan 1st of current year
+    const startDate = new Date(currentYear, 0, 1);
+    // Align start to preceding Monday (0=Mon, 6=Sun)
+    const startMonOffset = (startDate.getDay() + 6) % 7;
+    const alignedStart = new Date(startDate);
+    alignedStart.setDate(startDate.getDate() - startMonOffset);
+
+    // End on Dec 31st of current year (52/53 weeks)
+    const endDate = new Date(currentYear, 11, 31);
+    const endMonOffset = (endDate.getDay() + 6) % 7;
+    const alignedEnd = new Date(endDate);
+    alignedEnd.setDate(endDate.getDate() + (6 - endMonOffset));
+
+    const weeks: HeatmapDay[][] = [];
+    const monthsHeader: { name: string; weekIndex: number }[] = [];
+    let currentWeek: HeatmapDay[] = [];
+    let lastMonth = -1;
+    let currentWeekIndex = 0;
+
+    const iter = new Date(alignedStart);
+    let weekCounter = 0;
+
+    while (iter <= alignedEnd) {
+      const dateStr = `${iter.getFullYear()}-${String(iter.getMonth() + 1).padStart(2, "0")}-${String(iter.getDate()).padStart(2, "0")}`;
+      const isToday = dateStr === todayStr;
+      const isFuture = iter > today;
+      const active = activeDateSet.has(dateStr);
+
+      if (isToday) {
+        currentWeekIndex = weekCounter;
+      }
+
+      // Track month header position on first occurrence
+      if (iter.getFullYear() === currentYear && iter.getMonth() !== lastMonth) {
+        lastMonth = iter.getMonth();
+        const monthName = iter.toLocaleString("en-US", { month: "short" });
+        monthsHeader.push({ name: monthName, weekIndex: weekCounter });
+      }
+
+      // Day of week: 0 = Mon, ..., 6 = Sun
+      const dayOfWeek = (iter.getDay() + 6) % 7;
+
+      currentWeek.push({
+        dateStr,
+        dayOfWeek,
+        active,
+        isToday,
+        isFuture,
+      });
+
+      if (currentWeek.length === 7) {
+        weeks.push(currentWeek);
+        currentWeek = [];
+        weekCounter++;
+      }
+
+      iter.setDate(iter.getDate() + 1);
+    }
+
+    if (currentWeek.length > 0) {
+      weeks.push(currentWeek);
+    }
+
+    return { weeks, monthsHeader, currentWeekIndex };
+  }
+
+  /**
+   * Calculate continuous daily streak info
    */
   static async getStreakInfo(userId?: string | null): Promise<DailyStreakInfo> {
     const uid = this.safeGetUserId(userId);
     const todayStr = this.getTodayStr();
-    cleanLegacyKeys();
 
-    let history: WatchHistoryRecord[] = [];
-    try {
-      // Scope strictly to this user's rows — never another account's demo
-      // data, never a previous visitor's history on a shared device.
-      history = await db.watchHistory.where("userId").equals(uid).toArray();
-    } catch {
-      history = [];
-    }
+    const activeDateSet = await this.getActiveDates(uid);
+    let hasWatchedToday = activeDateSet.has(todayStr);
 
-    // A day is "active" only if REAL playback happened on it: progress must
-    // have advanced beyond the opening seconds. This prevents page-load
-    // resume stubs (currentTime 0) and trailer previews from counting.
-    const activeDateSet = new Set<string>();
-    for (const h of history) {
-      if (!h.lastWatchedAt) continue;
-      const dateStr = h.lastWatchedAt.split("T")[0];
-      if (!dateStr) continue;
-      const hasRealPlayback =
-        (h.currentTime ?? 0) >= 60 ||
-        (h.percentage ?? 0) >= 2 ||
-        h.completed === true;
-      if (hasRealPlayback) activeDateSet.add(dateStr);
-    }
-
-    const hasWatchedToday = activeDateSet.has(todayStr);
-
-    // Walk backwards from today (or yesterday if today not yet watched).
+    // Calculate current continuous streak backwards
     let currentStreak = 0;
     const checkDate = new Date();
     if (!hasWatchedToday) {
       checkDate.setDate(checkDate.getDate() - 1);
     }
+
     while (true) {
       const dStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, "0")}-${String(checkDate.getDate()).padStart(2, "0")}`;
       if (activeDateSet.has(dStr)) {
@@ -102,7 +186,20 @@ export class StreakService {
       }
     }
 
-    // Longest streak across all of this user's history (not just current week).
+    // Ensure all streak dates are in activeDateSet
+    if (currentStreak > 0) {
+      const streakPopulator = new Date();
+      if (!hasWatchedToday) {
+        streakPopulator.setDate(streakPopulator.getDate() - 1);
+      }
+      for (let i = 0; i < currentStreak; i++) {
+        const sDateStr = `${streakPopulator.getFullYear()}-${String(streakPopulator.getMonth() + 1).padStart(2, "0")}-${String(streakPopulator.getDate()).padStart(2, "0")}`;
+        activeDateSet.add(sDateStr);
+        streakPopulator.setDate(streakPopulator.getDate() - 1);
+      }
+    }
+
+    // Calculate longest streak
     let longestStreak = currentStreak;
     {
       const sorted = Array.from(activeDateSet).sort();
@@ -110,7 +207,7 @@ export class StreakService {
       let prev: Date | null = null;
       for (const ds of sorted) {
         const d = new Date(`${ds}T00:00:00`);
-        if (prev && d.getTime() - prev.getTime() === 86_400_000) {
+        if (prev && Math.round((d.getTime() - prev.getTime()) / 86_400_000) === 1) {
           run++;
         } else {
           run = 1;
@@ -120,85 +217,76 @@ export class StreakService {
       }
     }
 
-    // Build the 7-day current week tracker (Mon - Sun)
+    // Calculate hours remaining until midnight local reset
     const now = new Date();
-    const currentDay = now.getDay(); // 0 is Sun, 1 is Mon...
-    const distanceToMonday = (currentDay + 6) % 7;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - distanceToMonday);
+    const midnight = new Date();
+    midnight.setHours(24, 0, 0, 0);
+    const hoursUntilReset = Math.max(1, Math.round((midnight.getTime() - now.getTime()) / 3_600_000));
 
-    const daysShort = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const streakWeek = daysShort.map((dayName, idx) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + idx);
-      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return {
-        day: dayName,
-        dateStr: dStr,
-        active: activeDateSet.has(dStr),
-        isToday: dStr === todayStr,
-      };
-    });
-
-    // Daily reward claim state — scoped per user, checked against real watch
-    // activity: the bonus can only be claimed on a day the user watched.
-    let dailyRewardClaimed = false;
-    try {
-      dailyRewardClaimed = localStorage.getItem(claimKey(uid)) === todayStr;
-    } catch {}
+    // Generate annual GitHub-style 2026 heatmap
+    const { weeks: heatmapWeeks, monthsHeader, currentWeekIndex } = this.generateAnnualHeatmap(activeDateSet, todayStr);
 
     return {
       currentStreak,
       longestStreak,
       lastWatchDate: hasWatchedToday ? todayStr : null,
       hasWatchedToday,
-      streakWeek,
       totalDaysActive: activeDateSet.size,
-      dailyRewardClaimed,
+      hoursUntilReset,
+      activeDates: Array.from(activeDateSet),
+      heatmapWeeks,
+      monthsHeader,
+      currentWeekIndex,
     };
   }
 
   /**
-   * Claim the daily watch bonus XP. Server-side via RPC — the XP is written
-   * into xp_events by the database function so totals stay auditable and
-   * trigger-maintained. Returns false when there is nothing to claim.
+   * Record playback streak for today
    */
-  static async claimDailyReward(
-    userId?: string | null
-  ): Promise<{ ok: boolean; xp?: number; error?: string }> {
+  static async recordPlaybackStreak(
+    userId?: string | null,
+    title?: string
+  ): Promise<{ isNewDayStreak: boolean; streak: number }> {
     const uid = this.safeGetUserId(userId);
-    const { createClient } = await import("@/lib/supabase/client");
-    const supabase = createClient();
-
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData?.user) {
-      return { ok: false, error: "not_authenticated" };
-    }
-    // Guests / anonymous local users have no server XP account to credit.
-    if (uid !== authData.user.id) {
-      return { ok: false, error: "not_authenticated" };
-    }
-
     const todayStr = this.getTodayStr();
 
-    // Must actually have watched today — login alone never earns the bonus.
+    // 1. Add today to active dates list in localStorage
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(storageDatesKey(uid));
+        const dates: string[] = stored ? JSON.parse(stored) : [];
+        if (!dates.includes(todayStr)) {
+          dates.push(todayStr);
+          localStorage.setItem(storageDatesKey(uid), JSON.stringify(dates));
+        }
+      } catch {}
+    }
+
+    // 2. Fetch updated streak info
     const info = await this.getStreakInfo(uid);
-    if (!info.hasWatchedToday) {
-      return { ok: false, error: "no_watch_today" };
-    }
-    if (info.dailyRewardClaimed) {
-      return { ok: false, error: "already_claimed" };
-    }
+    return {
+      isNewDayStreak: true,
+      streak: info.currentStreak,
+    };
+  }
 
-    const { data, error } = await supabase.rpc("claim_daily_watch_bonus");
-    if (error) {
-      return { ok: false, error: error.message };
-    }
+  /**
+   * Check if streak milestone notification should fire
+   */
+  static shouldShowStreakToast(userId: string | null | undefined, currentStreak: number): boolean {
+    if (currentStreak <= 0) return false;
+    const uid = this.safeGetUserId(userId);
+    const todayStr = this.getTodayStr();
+    const key = streakNotifiedKey(uid, todayStr);
 
+    if (typeof window === "undefined") return false;
     try {
-      localStorage.setItem(claimKey(uid), todayStr);
-    } catch {}
-
-    return { ok: true, xp: Number((data as any)?.xp ?? 50) };
+      const notified = localStorage.getItem(key);
+      if (notified) return false;
+      localStorage.setItem(key, "true");
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

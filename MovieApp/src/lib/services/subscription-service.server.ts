@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { SubscriptionPackage } from "./subscription-service";
+import { SOLO_PASS_PRICE_PHP, withCanonicalPrice } from "@/lib/constants/pricing";
 
 /**
  * Server-side subscription service for SSR/SSG pages
@@ -28,7 +29,7 @@ export class SubscriptionServiceServer {
         return [];
       }
 
-      return data || [];
+      return (data || []).map(withCanonicalPrice);
     } catch (err) {
       console.error("[Server] Failed to fetch packages:", err);
       return [];
@@ -41,11 +42,11 @@ export class SubscriptionServiceServer {
   static getFallbackPackages(): SubscriptionPackage[] {
     return [
       {
-        id: "package-solo-349",
+        id: "package-solo-99",
         code: "solo",
         name: "Solo Pass",
-        description: "Unlimited 1080p & 4K cinema streaming, zero ads, all devices — 1 active screen",
-        price_php: 349,
+        description: "Unlimited 1080p cinema streaming, all devices — 1 active screen",
+        price_php: SOLO_PASS_PRICE_PHP,
         currency: "PHP",
         billing_interval: "monthly",
         max_concurrent_sessions: 1,

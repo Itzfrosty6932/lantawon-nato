@@ -5,19 +5,16 @@ import Link from "next/link";
 import {
   LayoutGrid,
   List,
-  AlignJustify,
-  Sparkles,
   User,
-  Film,
-  Tv,
   Star,
   Layers,
-  ArrowRight,
+  Building2,
   Info,
   Loader2,
   ChevronDown,
+  Play,
+  Sparkles,
 } from "lucide-react";
-import { MediaCard } from "@/components/movie/MediaCard";
 import { SmartImage } from "@/components/ui/SmartImage";
 import { TMDB_IMAGE_CONFIG } from "@/lib/config/tmdb-images";
 import { formatYear } from "@/lib/utils/formatters";
@@ -61,19 +58,6 @@ export function SearchResultsView({
   const [viewMode, setViewMode] = useState<SearchLayoutViewMode>("grid");
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    try {
-      localStorage.removeItem("cinemind_search_view_mode");
-      const stored = localStorage.getItem("lantawon_search_view_mode");
-      if (stored === "list") {
-        setViewMode("list");
-      } else {
-        setViewMode("grid");
-        localStorage.setItem("lantawon_search_view_mode", "grid");
-      }
-    } catch {}
-  }, []);
-
   // Infinite scroll observer
   useEffect(() => {
     if (!loadMoreRef.current || !hasMore || isLoadingMore || isLoading) return;
@@ -91,51 +75,63 @@ export function SearchResultsView({
     return () => observer.disconnect();
   }, [hasMore, isLoadingMore, isLoading, onLoadMore]);
 
-  const handleViewModeChange = (mode: SearchLayoutViewMode) => {
-    audioFX.playClick();
-    setViewMode(mode);
-    try {
-      localStorage.setItem("lantawon_search_view_mode", mode);
-    } catch {}
+  const tabCounts = data?.tabCounts || {
+    all: 0,
+    movie: 0,
+    tv: 0,
+    anime: 0,
+    person: 0,
+    collection: 0,
+    company: 0,
   };
-
-  const tabCounts = data?.tabCounts || { all: 0, movie: 0, tv: 0, anime: 0, person: 0, collection: 0 };
-  const ast = data?.ast;
   const people = data?.people || [];
   const collections = data?.collections || [];
-
+  const companies = data?.companies || [];
   const isSearchMode = Boolean(query && query.trim().length > 0);
 
   const tabs = [
-    { id: "all", label: "All Results", count: tabCounts.all },
+    { id: "all", label: "All", count: tabCounts.all },
     { id: "movie", label: "Movies", count: tabCounts.movie },
     { id: "tv", label: "TV Series", count: tabCounts.tv },
     { id: "anime", label: "Anime", count: tabCounts.anime },
-    ...(isSearchMode ? [
-      { id: "person", label: "People", count: tabCounts.person },
-      { id: "collection", label: "Collections", count: tabCounts.collection },
-    ] : []),
+    ...(isSearchMode
+      ? [
+          { id: "company", label: "Studios & Brands", count: tabCounts.company || companies.length },
+          { id: "person", label: "People", count: tabCounts.person },
+          { id: "collection", label: "Collections", count: tabCounts.collection },
+        ]
+      : []),
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Search Header: Result Tabs & Layout Toggle */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+    <div className="space-y-6 select-none">
+      {/* ─── Search Query Heading ─── */}
+      {isSearchMode && (
+        <div className="space-y-1">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white tracking-tight">
+            Search results for &quot;<span className="text-[#E50914]">{query}</span>&quot;
+          </h1>
+        </div>
+      )}
+
+      {/* ─── Search Header: Result Tabs & Layout Toggle ─── */}
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3 w-full">
         {/* Category Tabs */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full scrollbar-none">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none scroll-smooth">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => {
                   audioFX.playClick();
                   onTabChange(tab.id);
                 }}
-                className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all shrink-0 ${
+                className={`flex items-center gap-1.5 rounded-full px-3 sm:px-3.5 py-1.5 text-[11px] sm:text-xs font-bold transition-all shrink-0 cursor-pointer ${
                   isActive
                     ? "bg-white text-zinc-950 shadow-md"
-                    : "bg-[#242526] text-zinc-300 hover:text-white hover:bg-[#3a3b3c] border border-zinc-700/80"
+                    : "bg-white/5 text-zinc-300 hover:text-white hover:bg-white/10 border border-white/10"
                 }`}
               >
                 <span>{tab.label}</span>
@@ -153,131 +149,84 @@ export function SearchResultsView({
           })}
         </div>
 
-        {/* View Mode Toggle (Grid & List) */}
-        <div className="flex items-center gap-1 bg-[#18191a] p-1 rounded-xl border border-zinc-800 shrink-0 self-end sm:self-auto">
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 shrink-0">
           <button
-            onClick={() => handleViewModeChange("grid")}
+            type="button"
+            onClick={() => {
+              audioFX.playClick();
+              setViewMode("grid");
+            }}
             className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               viewMode === "grid" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-400 hover:text-white"
             }`}
             title="Grid View"
           >
-            <LayoutGrid className="h-4 w-4" />
+            <LayoutGrid className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </button>
           <button
-            onClick={() => handleViewModeChange("list")}
+            type="button"
+            onClick={() => {
+              audioFX.playClick();
+              setViewMode("list");
+            }}
             className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               viewMode === "list" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-400 hover:text-white"
             }`}
             title="List View"
           >
-            <List className="h-4 w-4" />
+            <List className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </button>
         </div>
       </div>
 
-      {/* Did You Mean Typo Suggestion */}
-      {data?.didYouMean && onSearchOverride && (
-        <div className="rounded-xl bg-[#E50914]/10 border border-[#E50914]/30 p-3 text-xs flex items-center justify-between gap-3">
-          <div className="text-zinc-300">
-            Showing results for <strong className="text-[#E50914] font-bold">&quot;{data.didYouMean.suggested}&quot;</strong>
-          </div>
-          <button
-            onClick={() => onSearchOverride(data.didYouMean!.original)}
-            className="text-[11px] text-zinc-400 hover:text-white underline shrink-0"
-          >
-            Search instead for &quot;{data.didYouMean.original}&quot;
-          </button>
-        </div>
-      )}
-
-      {/* Query Understanding / AST Interpretation Box */}
-      {isSearchMode && ast && ast.explanation.length > 0 && (
-        <div className="rounded-xl ui-surface p-3 border border-white/[0.08] flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-xs font-extrabold text-[#E50914] uppercase tracking-wider">
-            <Sparkles className="h-3.5 w-3.5 text-[#E50914]" /> Query Understanding:
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {ast.explanation.map((item, idx) => (
-              <span
-                key={idx}
-                className="rounded bg-zinc-900 border border-white/10 px-2 py-0.5 text-[11px] text-zinc-300 font-medium"
-              >
-                {item}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 0 Results / Smart Relaxation Banner */}
-      {!isLoading && items.length === 0 && people.length === 0 && collections.length === 0 && (
-        <div className="rounded-xl ui-surface p-8 text-center space-y-4">
+      {/* ─── 0 Results Banner ─── */}
+      {!isLoading && items.length === 0 && people.length === 0 && collections.length === 0 && companies.length === 0 && (
+        <div className="rounded-2xl bg-white/5 border border-white/10 p-12 text-center space-y-4">
           <Info className="h-10 w-10 text-zinc-500 mx-auto" />
           <div>
             <h3 className="font-heading text-base font-bold text-white">
               {isSearchMode ? `No results found for "${query}"` : "No titles match your active filters"}
             </h3>
             <p className="text-xs text-zinc-400 max-w-md mx-auto mt-1">
-              Try adjusting your search query, clearing specific genre tags, or lowering your minimum rating filter.
+              Try searching by movie title, series, anime, brand studio (e.g. Marvel, A24, Ghibli), or actor.
             </p>
           </div>
-
-          {/* Smart Relaxation Buttons */}
-          {data?.relaxation && data.relaxation.length > 0 && onApplyRelaxation && (
-            <div className="pt-2 space-y-2 max-w-md mx-auto">
-              <div className="text-xs font-bold text-[#E50914]">Smart Suggestions:</div>
-              <div className="flex flex-col gap-1.5">
-                {data.relaxation.map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      audioFX.playClick();
-                      onApplyRelaxation(suggestion);
-                    }}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-[#E50914]/30 bg-[#E50914]/10 hover:bg-[#E50914]/20 text-xs font-bold text-[#ff5247] transition-all text-left"
-                  >
-                    <span>{suggestion.label}</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* People Results Shelf (When in All or Person Tab) */}
-      {(activeTab === "all" || activeTab === "person") && people.length > 0 && (
-        <div className="rounded-xl ui-surface p-4 space-y-3">
-          <div className="font-heading text-xs font-bold text-white flex items-center gap-2 uppercase tracking-wider">
-            <User className="h-3.5 w-3.5 text-[#E50914]" /> Actors &amp; Creators
+      {/* ─── Studios & Brand Results ─── */}
+      {(activeTab === "all" || activeTab === "company") && companies.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-wider">
+            <Building2 className="h-3.5 w-3.5 text-[#E50914]" /> Studios &amp; Production Brands
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {(activeTab === "all" ? people.slice(0, 4) : people).map((p) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {companies.map((c) => (
               <Link
-                key={p.id}
-                href={`/person/${p.id}`}
+                key={c.id}
+                href={`/discover?company=${c.id}`}
                 onClick={() => audioFX.playClick()}
-                className="flex items-center gap-3 p-3 rounded-xl bg-[#18191a] border border-white/[0.08] hover:border-[#E50914]/50 hover:bg-[#242526] transition-all group block shadow-sm"
+                className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#E50914] hover:bg-white/10 transition-all group shadow-sm"
               >
-                <SmartImage
-                  src={
-                    p.profile_path
-                      ? `${TMDB_IMAGE_CONFIG.PROFILE_BASE}${p.profile_path}`
-                      : TMDB_IMAGE_CONFIG.FALLBACK_AVATAR
-                  }
-                  alt={p.name}
-                  fallbackType="avatar"
-                  containerClassName="h-11 w-11 rounded-full overflow-hidden border border-white/15 bg-zinc-900 shrink-0 group-hover:scale-105 transition-transform"
-                  className="h-full w-full object-cover rounded-full"
-                />
+                <div className="h-10 w-10 rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-1.5 shrink-0">
+                  {c.logo_path ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`${TMDB_IMAGE_CONFIG.POSTER_BASE}${c.logo_path}`}
+                      alt={c.name}
+                      className="max-h-full max-w-full object-contain filter invert opacity-85 group-hover:opacity-100 transition-opacity"
+                    />
+                  ) : (
+                    <Building2 className="h-5 w-5 text-zinc-400 group-hover:text-white" />
+                  )}
+                </div>
                 <div className="min-w-0">
-                  <div className="font-heading text-xs font-bold text-white truncate group-hover:text-[#E50914] transition-colors">
-                    {p.name}
+                  <div className="font-heading text-xs font-bold text-white truncate group-hover:text-zinc-200 transition-colors">
+                    {c.name}
                   </div>
-                  <div className="text-[10px] text-zinc-400 capitalize truncate">
-                    {p.known_for_department || "Actor / Creator"}
+                  <div className="text-[10px] text-zinc-400 truncate">
+                    {c.origin_country || "Studio"}
                   </div>
                 </div>
               </Link>
@@ -286,85 +235,160 @@ export function SearchResultsView({
         </div>
       )}
 
-      {/* Collections Results Shelf (When in All or Collection Tab) */}
-      {(activeTab === "all" || activeTab === "collection") && collections.length > 0 && (
-        <div className="rounded-xl ui-surface p-4 space-y-3">
-          <div className="font-heading text-xs font-bold text-white flex items-center gap-2 uppercase tracking-wider">
-            <Layers className="h-3.5 w-3.5 text-[#ff3b30]" /> Franchises &amp; Collections
+      {/* ─── People Results (Actors & Creators) ─── */}
+      {(activeTab === "all" || activeTab === "person") && people.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-wider">
+            <User className="h-3.5 w-3.5 text-[#E50914]" /> Actors &amp; Creators
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {(activeTab === "all" ? collections.slice(0, 4) : collections).map((c) => (
-              <div
-                key={c.id}
-                className="flex items-center gap-3 p-3 rounded-xl bg-[#18191a] border border-white/[0.08]"
-              >
-                <SmartImage
-                  src={
-                    c.poster_path
-                      ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${c.poster_path}`
-                      : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
-                  }
-                  alt={c.name}
-                  fallbackType="poster"
-                  containerClassName="h-12 w-9 rounded-md border border-white/10 shrink-0 bg-zinc-900"
-                  className="h-full w-full object-cover"
-                />
-                <div className="min-w-0">
-                  <div className="font-heading text-xs font-bold text-white truncate">{c.name}</div>
-                  <div className="text-[10px] text-zinc-400">Franchise Collection</div>
-                </div>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+            {(activeTab === "all" ? people.slice(0, 6) : people).map((p) => {
+              const initials = p.name
+                ? p.name
+                    .trim()
+                    .split(/\s+/)
+                    .map((w) => w[0])
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .join("")
+                    .toUpperCase()
+                : "??";
+
+              return (
+                <Link
+                  key={p.id}
+                  href={`/person/${p.id}`}
+                  onClick={() => audioFX.playClick()}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#E50914] hover:bg-white/10 transition-all group block shadow-sm"
+                >
+                  {p.profile_path ? (
+                    <SmartImage
+                      src={`${TMDB_IMAGE_CONFIG.PROFILE_BASE}${p.profile_path}`}
+                      alt={p.name}
+                      fallbackType="avatar"
+                      containerClassName="h-11 w-11 rounded-lg overflow-hidden border border-white/15 bg-zinc-900 shrink-0 group-hover:scale-105 transition-transform"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-11 w-11 rounded-lg bg-zinc-900 border border-white/15 flex items-center justify-center shrink-0">
+                      <span className="font-mono text-xs font-bold text-zinc-300">{initials}</span>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-heading text-xs font-bold text-white truncate group-hover:text-zinc-200 transition-colors">
+                      {p.name}
+                    </div>
+                    <div className="text-[10px] text-zinc-400 capitalize truncate">
+                      {p.known_for_department || "Actor / Creator"}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Media Results: GRID VIEW */}
+      {/* ─── Media Results: 16:9 LANDSCAPE BACKDROP GRID ─── */}
       {viewMode === "grid" && items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {items.map((item, idx) => (
-            <MediaCard
-              key={`${item.media_type || (item.title ? "movie" : "tv")}_${item.id}_${idx}`}
-              item={item}
-              onOpenTrailer={onOpenTrailer}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Media Results: LIST VIEW */}
-      {viewMode === "list" && items.length > 0 && (
-        <div className="space-y-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {items.map((item, idx) => {
             const itemType = item.media_type || (item.title ? "movie" : "tv");
-            const year = formatYear(item.release_date || item.first_air_date);
-            const poster = item.poster_path
-              ? item.poster_path.startsWith("http")
-                ? item.poster_path
-                : `${TMDB_IMAGE_CONFIG.POSTER_BASE}${item.poster_path.startsWith("/") ? "" : "/"}${item.poster_path}`
-              : TMDB_IMAGE_CONFIG.FALLBACK_POSTER;
+            const title = item.title || item.name || "Untitled";
+            const year = formatYear(item.release_date || item.first_air_date) || "2025";
+            const rating = item.vote_average ? Number(item.vote_average).toFixed(1) : null;
 
+            const imgPath = item.backdrop_path || item.poster_path;
+            const thumbUrl = imgPath
+              ? `${TMDB_IMAGE_CONFIG.BACKDROP_BASE}${imgPath.startsWith("/") ? "" : "/"}${imgPath}`
+              : TMDB_IMAGE_CONFIG.FALLBACK_BACKDROP;
 
             return (
               <Link
                 key={`${itemType}_${item.id}_${idx}`}
                 href={`/watch/${item.id}?type=${itemType}`}
                 onClick={() => audioFX.playClick()}
-                className="flex items-start gap-4 p-3.5 rounded-xl ui-card border border-white/[0.08] hover:border-[#E50914]/40 transition-all group"
+                className="group relative block rounded-lg overflow-hidden transition-all duration-200 cursor-pointer"
+              >
+                {/* 16:9 Backdrop Thumbnail (Image scales, container doesn't) */}
+                <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-zinc-900 border border-white/10 group-hover:border-[#E50914] transition-colors">
+                  <SmartImage
+                    src={thumbUrl}
+                    alt={title}
+                    fallbackType="backdrop"
+                    containerClassName="h-full w-full"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+
+                  {/* Gradient Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+
+                  {/* Hover Play Button */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                    <div className="h-10 w-10 rounded-full bg-white text-zinc-950 flex items-center justify-center shadow-lg">
+                      <Play className="h-4 w-4 fill-current ml-0.5" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Title & Info Below Image */}
+                <div className="pt-2 px-1 space-y-0.5">
+                  <div className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-zinc-200 transition-colors">
+                    {title}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
+                    {rating && (
+                      <>
+                        <span className="flex items-center gap-0.5 text-[#E50914] font-bold">
+                          <Star className="h-3 w-3 fill-current" />
+                          <span>{rating}</span>
+                        </span>
+                        <span>·</span>
+                      </>
+                    )}
+                    <span className="font-mono">{year}</span>
+                    <span>·</span>
+                    <span className="capitalize">{itemType === "tv" ? "TV Show" : "Movie"}</span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ─── Media Results: LIST VIEW ─── */}
+      {viewMode === "list" && items.length > 0 && (
+        <div className="space-y-2.5">
+          {items.map((item, idx) => {
+            const itemType = item.media_type || (item.title ? "movie" : "tv");
+            const title = item.title || item.name || "Untitled";
+            const year = formatYear(item.release_date || item.first_air_date);
+            const poster = item.poster_path
+              ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${item.poster_path.startsWith("/") ? "" : "/"}${item.poster_path}`
+              : TMDB_IMAGE_CONFIG.FALLBACK_POSTER;
+
+            return (
+              <Link
+                key={`${itemType}_${item.id}_${idx}`}
+                href={`/watch/${item.id}?type=${itemType}`}
+                onClick={() => audioFX.playClick()}
+                className="flex items-start gap-4 p-3.5 rounded-xl bg-white/5 border border-white/10 hover:border-[#E50914] transition-all group"
               >
                 <SmartImage
                   src={poster}
-                  alt={item.title || item.name || ""}
+                  alt={title}
                   fallbackType="poster"
                   containerClassName="w-16 sm:w-20 aspect-[2/3] rounded-lg bg-zinc-950 border border-white/10 shrink-0"
                   className="h-full w-full object-cover"
                 />
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-heading text-sm font-bold text-white group-hover:text-[#E50914] transition-colors truncate">
-                      {item.title || item.name}
+                    <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-zinc-200 transition-colors truncate">
+                      {title}
                     </h3>
-                    <span className="rounded bg-[#E50914]/15 border border-[#E50914]/30 px-1.5 py-0.2 text-[10px] font-bold text-[#E50914] uppercase">
+                    <span className="rounded bg-white/10 border border-white/10 px-1.5 py-0.2 text-[10px] font-bold text-white uppercase">
                       {itemType}
                     </span>
                     <span className="text-xs text-zinc-400 font-mono">{year}</span>
@@ -374,7 +398,7 @@ export function SearchResultsView({
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-zinc-400 line-clamp-2 mt-1.5 leading-relaxed">
+                  <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
                     {item.overview || "No synopsis available."}
                   </p>
                 </div>
@@ -384,25 +408,33 @@ export function SearchResultsView({
         </div>
       )}
 
-      {/* Infinite Scroll Trigger & Load More */}
+      {/* ─── No More Results Indicator ─── */}
+      {items.length > 0 && !hasMore && (
+        <div className="py-10 text-center text-xs font-medium text-zinc-500 font-mono">
+          No more results
+        </div>
+      )}
+
+      {/* ─── Infinite Scroll Trigger & Load More ─── */}
       {items.length > 0 && hasMore && (
         <div ref={loadMoreRef} className="pt-6 pb-8 text-center">
           <button
+            type="button"
             onClick={() => {
               audioFX.playClick();
               onLoadMore();
             }}
             disabled={isLoadingMore}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-6 py-2.5 text-xs font-bold text-white hover:bg-zinc-800 hover:border-[#E50914]/40 transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 px-6 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-50 cursor-pointer"
           >
             {isLoadingMore ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin text-[#E50914]" />
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
                 <span>Loading more titles...</span>
               </>
             ) : (
               <>
-                <ChevronDown className="h-4 w-4 text-[#E50914]" />
+                <ChevronDown className="h-4 w-4" />
                 <span>Load More Titles</span>
               </>
             )}

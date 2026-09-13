@@ -10,6 +10,10 @@ import {
   Search,
   AlertTriangle,
   Eye,
+  Tv,
+  Check,
+  X,
+  Film,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
@@ -30,14 +34,30 @@ interface RefundRow {
   amount?: number;
   reference_number?: string | null;
   requester_name?: string;
+  // Computed Live Watch Telemetry
+  total_watch_seconds?: number;
+  nontrailer_videos_count?: number;
 }
 
-/**
- * CANONICAL REFUND RULE: a payment is refundable only until the account
- * watches its FIRST non-trailer video. `was_eligible_at_request` is a
- * snapshot taken at request time (via request_refund RPC) — decisions are
- * made against the snapshot so post-request viewing never rewrites history.
- */
+function formatFullDate(iso: string | undefined | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDuration(secs: number): string {
+  if (!secs || secs <= 0) return "0 mins";
+  const hrs = Math.floor(secs / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  return `${mins} mins`;
+}
+
 export function AdminRefundsTab() {
   const supabase = createClient();
   const { showToast } = useToast();
@@ -53,49 +73,68 @@ export function AdminRefundsTab() {
   const loadRefunds = useCallback(async () => {
     setLoading(true);
 
-    // NOTE: requested_by_user_id references auth.users, which PostgREST does
-    // not expose — resolve display names through profiles in a second pass.
-    const { data, error } = await supabase
-      .from("refund_requests")
-      .select(`*, payment:payment_submissions(amount, reference_number)`)
-      .eq("status", filter)
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from("refund_requests")
+        .select(`*, payment:payment_submissions(amount, reference_number)`)
+        .eq("status", filter)
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error loading refunds:", JSON.stringify(error));
-      showToast(`❌ Failed to load refund requests: ${error.message}`, "error");
-      setRefunds([]);
-      setLoading(false);
-      return;
-    }
-
-    const rows = (data || []) as unknown as Record<string, unknown>[];
-    const userIds = [...new Set(rows.map((r) => String(r.requested_by_user_id)))];
-
-    const nameById = new Map<string, string>();
-    if (userIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, username, display_name")
-        .in("id", userIds);
-      for (const p of profiles || []) {
-        nameById.set(p.id, p.username || p.display_name || p.id.slice(0, 8));
+      if (error) {
+        console.error("Error loading refunds:", JSON.stringify(error));
+        showToast(`Failed to load refunds: ${error.message}`, "error");
+        setRefunds([]);
+        setLoading(false);
+        return;
       }
-    }
 
-    setRefunds(
-      rows.map((r) => {
-        const payment = r.payment as { amount?: number; reference_number?: string } | null;
-        const uid = String(r.requested_by_user_id);
-        return {
-          ...(r as unknown as RefundRow),
-          amount: payment?.amount,
-          reference_number: payment?.reference_number,
-          requester_name: nameById.get(uid) || uid.slice(0, 8),
-        };
-      })
-    );
-    setLoading(false);
+      const rows = (data || []) as unknown as Record<string, unknown>[];
+      const userIds = [...new Set(rows.map((r) => String(r.requested_by_user_id)))];
+
+      // Map names and watch telemetry
+      const nameById = new Map<string, string>();
+      const watchTimeById = new Map<string, number>();
+      const nonTrailerCountById = new Map<string, number>();
+
+      if (userIds.length > 0) {
+        const [{ data: profiles }, { data: sessions }] = await Promise.all([
+          supabase.from("profiles").select("id, username, display_name").in("id", userIds),
+          supabase.from("watch_sessions").select("user_id, watch_duration_seconds, is_trailer").in("user_id", userIds),
+        ]);
+
+        for (const p of profiles || []) {
+          nameById.set(p.id, p.display_name || p.username || p.id.slice(0, 8));
+        }
+
+        for (const s of sessions || []) {
+          const uid = s.user_id;
+          watchTimeById.set(uid, (watchTimeById.get(uid) || 0) + (s.watch_duration_seconds || 0));
+          if (!s.is_trailer) {
+            nonTrailerCountById.set(uid, (nonTrailerCountById.get(uid) || 0) + 1);
+          }
+        }
+      }
+
+      setRefunds(
+        rows.map((r) => {
+          const payment = r.payment as { amount?: number; reference_number?: string } | null;
+          const uid = String(r.requested_by_user_id);
+          return {
+            ...(r as unknown as RefundRow),
+            amount: payment?.amount,
+            reference_number: payment?.reference_number,
+            requester_name: nameById.get(uid) || uid.slice(0, 8),
+            total_watch_seconds: watchTimeById.get(uid) || 0,
+            nontrailer_videos_count: nonTrailerCountById.get(uid) || 0,
+          };
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to load refund requests.", "error");
+    } finally {
+      setLoading(false);
+    }
   }, [supabase, filter, showToast]);
 
   useEffect(() => {
@@ -104,7 +143,7 @@ export function AdminRefundsTab() {
 
   const decide = async (refund: RefundRow, decision: "approved" | "rejected") => {
     if (decision === "rejected" && decisionNote.trim().length < 3) {
-      showToast("⚠️ Provide a short note when rejecting a refund.", "error");
+      showToast("Please provide a note when rejecting a refund.", "error");
       return;
     }
 
@@ -112,8 +151,6 @@ export function AdminRefundsTab() {
     audioFX.playClick();
 
     try {
-      // RLS: only admins pass the manage policy. No SECURITY DEFINER needed —
-      // the snapshot columns are already frozen at request time.
       const { error } = await supabase
         .from("refund_requests")
         .update({
@@ -123,319 +160,378 @@ export function AdminRefundsTab() {
           decided_by: (await supabase.auth.getUser()).data.user?.id ?? null,
         })
         .eq("id", refund.id)
-        .eq("status", "pending"); // optimistic concurrency: never re-decide
+        .eq("status", "pending");
 
       if (error) throw error;
 
+      audioFX.playSuccess();
       showToast(
         decision === "approved"
-          ? "✅ Refund approved — process the payout offline."
-          : "✅ Refund rejected.",
+          ? "Refund approved — process GCash payout."
+          : "Refund rejected.",
         "success"
       );
       setReviewing(null);
       setDecisionNote("");
       loadRefunds();
-    } catch (err: unknown) {
-      console.error(err);
-      showToast(`❌ ${(err as Error).message || "Failed to update refund."}`, "error");
+    } catch (err: any) {
+      showToast(err.message || "Failed to update refund", "error");
     } finally {
       setProcessingId(null);
     }
   };
 
-  const markProcessed = async (refund: RefundRow) => {
-    setProcessingId(refund.id);
-    try {
-      const { error } = await supabase
-        .from("refund_requests")
-        .update({ status: "processed" })
-        .eq("id", refund.id)
-        .eq("status", "approved");
-      if (error) throw error;
-      showToast("✅ Refund marked as processed.", "success");
-      loadRefunds();
-    } catch (err: unknown) {
-      showToast(`❌ ${(err as Error).message}`, "error");
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
-  const filtered = refunds.filter(
-    (r) =>
-      r.requester_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.reference_number?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const stats = {
-    pending: refunds.filter((r) => r.status === "pending").length,
-    approved: refunds.filter((r) => r.status === "approved").length,
-    rejected: refunds.filter((r) => r.status === "rejected").length,
-  };
+  const filtered = refunds.filter((r) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (r.requester_name && r.requester_name.toLowerCase().includes(q)) ||
+      (r.reference_number && r.reference_number.toLowerCase().includes(q)) ||
+      (r.reason && r.reason.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-black text-white">Refund Requests</h2>
-        <p className="text-sm text-zinc-400 mt-1">
-          Refundable until the account watches its first non-trailer video.
-          Trailers never affect eligibility.
-        </p>
-      </div>
+      {/* ── Top Header & Filters ── */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Undo2 className="h-5 w-5 text-[#E50914]" />
+            <span>Refund Management &amp; Activity Audit</span>
+          </h2>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Audit requester watch history &amp; non-trailer watch time to verify refund eligibility.
+          </p>
+        </div>
 
-      {/* Rule banner */}
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
-        <AlertTriangle className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
-        <p className="text-xs text-blue-200 leading-relaxed">
-          Eligibility is snapshotted at request time (
-          <span className="font-mono">was_eligible_at_request</span>). Decide against that
-          snapshot — watching content after the request does not change it. Approve here,
-          then complete the GCash/Maya payout outside the system and mark it processed.
-        </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
-          <div className="flex items-center gap-2 text-amber-400 text-sm font-bold mb-1">
-            <Clock className="h-4 w-4" /> Pending
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+          {/* Status Filter Pills */}
+          <div className="flex items-center gap-1 p-1 rounded-full bg-zinc-900 border border-white/10 text-xs">
+            {(["pending", "approved", "rejected", "processed"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`px-3 py-1 rounded-full font-bold capitalize transition-all cursor-pointer ${
+                  filter === tab
+                    ? "bg-white text-zinc-950 shadow-md"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
-          <div className="text-2xl font-black text-white">{stats.pending}</div>
-        </div>
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-          <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold mb-1">
-            <CheckCircle2 className="h-4 w-4" /> Approved
+
+          {/* Search Input */}
+          <div className="relative flex-1 sm:w-60">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search user, reason..."
+              className="w-full pl-9 pr-4 py-2 rounded-full bg-zinc-900 border border-white/10 text-white placeholder:text-zinc-500 text-base sm:text-xs outline-none focus:border-[#E50914] transition-colors"
+            />
           </div>
-          <div className="text-2xl font-black text-white">{stats.approved}</div>
-        </div>
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30">
-          <div className="flex items-center gap-2 text-red-400 text-sm font-bold mb-1">
-            <XCircle className="h-4 w-4" /> Rejected
-          </div>
-          <div className="text-2xl font-black text-white">{stats.rejected}</div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by user, reason, or reference..."
-            className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 text-sm focus:border-[#E50914] focus:outline-none"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {(["pending", "approved", "rejected", "processed"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => {
-                audioFX.playClick();
-                setFilter(f);
-              }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold capitalize transition-colors ${
-                filter === f
-                  ? "bg-[#E50914] text-white"
-                  : "bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* List */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+        <div className="p-12 text-center text-zinc-400 flex items-center justify-center gap-2 rounded-2xl bg-[#141518]/90 border border-white/10">
+          <Loader2 className="h-5 w-5 animate-spin text-[#E50914]" />
+          <span className="text-xs font-semibold">Loading refund requests &amp; watch audits...</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-zinc-400">
-          <Undo2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p>No refund requests found</p>
+        <div className="p-12 text-center text-zinc-500 text-xs rounded-2xl bg-[#141518]/90 border border-white/10">
+          No refund requests in &quot;{filter}&quot; state.
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((refund) => (
-            <div
-              key={refund.id}
-              className="rounded-xl bg-zinc-950 border border-zinc-800 p-4 hover:border-zinc-700 transition-colors"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="space-y-2 flex-1 min-w-0">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span
-                      className={`px-2 py-1 rounded-lg text-xs font-bold ${
-                        refund.status === "approved" || refund.status === "processed"
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : refund.status === "rejected"
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-amber-500/20 text-amber-400"
-                      }`}
-                    >
-                      {refund.status.toUpperCase()}
-                    </span>
-                    <span className="text-sm font-bold text-white">{refund.requester_name}</span>
-                    {typeof refund.amount === "number" && (
-                      <span className="text-sm font-mono font-bold text-white">
-                        ₱{refund.amount.toFixed(2)}
+        <>
+          {/* ── 📱 MOBILE CARD UI (Visible only on mobile/small screens) ── */}
+          <div className="block md:hidden space-y-3">
+            {filtered.map((r) => {
+              const watchSecs = r.total_watch_seconds || 0;
+              const nonTrailerCount = r.nontrailer_videos_count || 0;
+              const isEligible = r.was_eligible_at_request && nonTrailerCount === 0;
+
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => setReviewing(r)}
+                  className="p-4 rounded-2xl bg-[#141518]/95 border border-white/10 space-y-3 shadow-lg active:scale-[0.99] transition-transform cursor-pointer"
+                >
+                  {/* Top: Requester, Amount, Status */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-white text-sm">{r.requester_name}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{formatFullDate(r.created_at)}</div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-base font-black text-white font-mono">₱{r.amount || "—"}</div>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.2 rounded-full text-[9px] font-mono font-bold uppercase ${
+                          r.status === "approved"
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : r.status === "rejected"
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-amber-500/20 text-amber-400"
+                        }`}
+                      >
+                        {r.status}
                       </span>
-                    )}
-                    {refund.was_eligible_at_request ? (
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-mono font-bold border border-emerald-500/30">
-                        ELIGIBLE AT REQUEST
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[10px] font-mono font-bold border border-red-500/30">
-                        ALREADY WATCHED
-                      </span>
-                    )}
+                    </div>
                   </div>
 
-                  <p className="text-xs text-zinc-300 line-clamp-2">{refund.reason}</p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  {/* Middle: Watch Activity & Eligibility */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5 text-[11px]">
                     <div>
-                      <span className="text-zinc-500">Reference: </span>
-                      <span className="text-white font-mono">{refund.reference_number || "N/A"}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500">Requested: </span>
-                      <span className="text-white">
-                        {new Date(refund.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    {refund.first_nontrailer_watched_at && (
-                      <div>
-                        <span className="text-zinc-500">First watch: </span>
-                        <span className="text-white">
-                          {new Date(refund.first_nontrailer_watched_at).toLocaleDateString()}
-                        </span>
+                      <div className="text-[10px] text-zinc-500 uppercase font-semibold">Watch Duration</div>
+                      <div className="font-mono text-emerald-400 font-bold mt-0.5">
+                        {formatDuration(watchSecs)} ({nonTrailerCount} videos)
                       </div>
-                    )}
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-zinc-500 uppercase font-semibold">Eligibility</div>
+                      <div className="mt-0.5">
+                        {isEligible ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold font-mono">
+                            <Check className="h-3 w-3" /> Eligible
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-red-400 font-bold font-mono">
+                            <AlertTriangle className="h-3 w-3" /> Ineligible
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {refund.decision_note && (
-                    <div className="text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-lg p-2">
-                      <span className="font-bold text-zinc-300">Decision note: </span>
-                      {refund.decision_note}
-                    </div>
-                  )}
-                </div>
+                  {/* Reason snippet */}
+                  <div className="pt-2 border-t border-white/5 text-xs text-zinc-300 line-clamp-2 leading-relaxed">
+                    <span className="text-zinc-500 font-semibold">Reason:</span> {r.reason}
+                  </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => {
-                      audioFX.playClick();
-                      setReviewing(refund);
-                      setDecisionNote(refund.decision_note || "");
-                    }}
-                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white text-sm font-bold transition-colors flex items-center gap-2"
+                  {/* Bottom: Full Width Auto-Layout Action Buttons */}
+                  <div
+                    className="pt-2 border-t border-white/5"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <Eye className="h-4 w-4" /> Review
-                  </button>
+                    {r.status === "pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => setReviewing(r)}
+                        className="w-full py-2.5 rounded-full bg-white text-zinc-950 hover:bg-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                        <span>Decide Refund</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setReviewing(r)}
+                        className="w-full py-2 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>View Decision</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              );
+            })}
+          </div>
+
+          {/* ── 💻 DESKTOP TABLE VIEW (Visible only on medium screens and up) ── */}
+          <div className="hidden md:block rounded-2xl bg-[#141518]/90 border border-white/10 overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-black/40 border-b border-white/10 text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="py-3.5 px-4">User</th>
+                    <th className="py-3.5 px-4">Amount &amp; Ref</th>
+                    <th className="py-3.5 px-4">Watch Time &amp; Activity</th>
+                    <th className="py-3.5 px-4">Eligibility Audit</th>
+                    <th className="py-3.5 px-4">Reason</th>
+                    <th className="py-3.5 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-zinc-300">
+                  {filtered.map((r) => {
+                    const watchSecs = r.total_watch_seconds || 0;
+                    const nonTrailerCount = r.nontrailer_videos_count || 0;
+                    const isEligible = r.was_eligible_at_request && nonTrailerCount === 0;
+
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => setReviewing(r)}
+                        className="hover:bg-white/[0.04] transition-colors cursor-pointer"
+                      >
+                        {/* User */}
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-white truncate">{r.requester_name}</div>
+                          <div className="text-[10px] text-zinc-500 font-mono">{formatFullDate(r.created_at)}</div>
+                        </td>
+
+                        {/* Amount & Ref */}
+                        <td className="py-3.5 px-4 font-mono">
+                          <div className="font-bold text-white">₱{r.amount || "—"}</div>
+                          <div className="text-[10px] text-zinc-400">{r.reference_number || "No Ref"}</div>
+                        </td>
+
+                        {/* Watch Activity Audit */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            <Tv className="h-4 w-4 text-zinc-400 shrink-0" />
+                            <div>
+                              <div className="font-bold text-white">
+                                {nonTrailerCount === 0 ? "0 videos watched" : `${nonTrailerCount} videos watched`}
+                              </div>
+                              <div className="text-[10px] text-zinc-400 font-mono">
+                                Total time: {formatDuration(watchSecs)}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Eligibility Snapshot */}
+                        <td className="py-3.5 px-4">
+                          {isEligible ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-bold">
+                              <Check className="h-3 w-3" />
+                              Eligible (0 Watched)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 text-[10px] font-mono font-bold">
+                              <AlertTriangle className="h-3 w-3" />
+                              Ineligible (Content Watched)
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Reason */}
+                        <td className="py-3.5 px-4 max-w-xs truncate text-zinc-300">
+                          {r.reason}
+                        </td>
+
+                        {/* Action */}
+                        <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          {r.status === "pending" ? (
+                            <button
+                              type="button"
+                              onClick={() => setReviewing(r)}
+                              className="btn-yt-active px-3 py-1 text-[11px] font-bold"
+                            >
+                              Decide
+                            </button>
+                          ) : (
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
+                                r.status === "approved"
+                                  ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-400"
+                                  : "bg-red-500/15 border border-red-500/30 text-red-400"
+                              }`}
+                            >
+                              {r.status}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </div>
+        </>
       )}
 
-      {/* Review Modal */}
+      {/* ── Review & Decide Modal ── */}
       {reviewing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-2xl bg-zinc-950 border border-zinc-800 p-6 space-y-6 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold">Review Refund Request</h3>
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-[#141518] border border-white/15 shadow-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Undo2 className="h-5 w-5 text-[#E50914]" />
+                <h3 className="text-base font-bold text-white">Refund Decision &amp; Audit</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewing(null)}
+                className="p-1 rounded-full text-zinc-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">User</span>
-                <span className="text-white font-bold">{reviewing.requester_name}</span>
+            {/* Requester & Watch Audit */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1">
+                <div className="text-[10px] text-zinc-500 uppercase font-semibold">User</div>
+                <div className="font-bold text-white truncate">{reviewing.requester_name}</div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Amount</span>
-                <span className="text-white font-bold">
-                  {typeof reviewing.amount === "number" ? `₱${reviewing.amount.toFixed(2)}` : "—"}
-                </span>
+              <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1">
+                <div className="text-[10px] text-zinc-500 uppercase font-semibold">Amount</div>
+                <div className="font-mono font-bold text-white text-sm">₱{reviewing.amount}</div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Eligible at request?</span>
-                <span
-                  className={`font-bold ${
-                    reviewing.was_eligible_at_request ? "text-emerald-400" : "text-red-400"
-                  }`}
-                >
-                  {reviewing.was_eligible_at_request ? "YES" : "NO"}
-                </span>
+              <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1">
+                <div className="text-[10px] text-zinc-500 uppercase font-semibold">Videos Streamed</div>
+                <div className="font-bold text-white">{reviewing.nontrailer_videos_count || 0} non-trailer videos</div>
               </div>
-              <div className="pt-2 border-t border-zinc-800">
-                <div className="text-zinc-500 text-xs mb-1">Reason</div>
-                <p className="text-white text-xs whitespace-pre-wrap">{reviewing.reason}</p>
+              <div className="p-3 rounded-xl bg-black/50 border border-white/5 space-y-1">
+                <div className="text-[10px] text-zinc-500 uppercase font-semibold">Recorded Watch Time</div>
+                <div className="font-mono font-bold text-emerald-400">{formatDuration(reviewing.total_watch_seconds || 0)}</div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-300">
-                Decision note {`(required for rejection)`}
-              </label>
-              <textarea
+            {/* Reason */}
+            <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-1">
+              <div className="text-[10px] text-zinc-500 font-bold uppercase">Customer Reason</div>
+              <p className="text-xs text-zinc-300 leading-relaxed">{reviewing.reason}</p>
+            </div>
+
+            {/* Decision note input */}
+            <div className="space-y-1.5">
+              <input
+                type="text"
                 value={decisionNote}
                 onChange={(e) => setDecisionNote(e.target.value)}
-                placeholder="Visible to the user in their subscription history..."
-                className="w-full px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 text-sm focus:border-[#E50914] focus:outline-none resize-none h-20"
+                placeholder="Decision note for user (Required if rejecting)"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/10 text-white placeholder:text-zinc-500 text-base sm:text-xs outline-none focus:border-[#E50914]"
               />
             </div>
 
-            {reviewing.status === "pending" ? (
-              <>
-                <button
-                  onClick={() => decide(reviewing, "approved")}
-                  disabled={processingId === reviewing.id}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {processingId === reviewing.id ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-5 w-5" /> Approve Refund
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => decide(reviewing, "rejected")}
-                  disabled={processingId === reviewing.id}
-                  className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <XCircle className="h-5 w-5" /> Reject Refund
-                </button>
-              </>
-            ) : (
-              reviewing.status === "approved" && (
-                <button
-                  onClick={() => markProcessed(reviewing)}
-                  disabled={processingId === reviewing.id}
-                  className="w-full py-3 rounded-xl bg-[#E50914] hover:bg-[#b80710] disabled:opacity-50 text-white font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <CheckCircle2 className="h-5 w-5" /> Mark as Processed (Payout Sent)
-                </button>
-              )
-            )}
+            {/* Action buttons (Full Width Auto Layout) */}
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={processingId === reviewing.id}
+                onClick={() => decide(reviewing, "approved")}
+                className="w-full sm:flex-1 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Approve Refund</span>
+              </button>
 
-            <button
-              onClick={() => {
-                setReviewing(null);
-                setDecisionNote("");
-              }}
-              className="w-full py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-bold transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
+              <button
+                type="button"
+                disabled={processingId === reviewing.id || !decisionNote.trim()}
+                onClick={() => decide(reviewing, "rejected")}
+                className="w-full sm:flex-1 py-2.5 rounded-full bg-red-600/80 hover:bg-red-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 cursor-pointer"
+              >
+                <XCircle className="h-4 w-4" />
+                <span>Reject Refund</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

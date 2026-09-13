@@ -25,11 +25,6 @@ interface AuditLogRow {
 
 const PAGE_SIZE = 50;
 
-/**
- * AUDITS — read-only viewer over audit_logs. Rows are written exclusively
- * inside SECURITY DEFINER functions / server routes (migration 14 removed
- * public INSERT), so everything here is system-generated history.
- */
 export function AdminAuditsTab() {
   const supabase = createClient();
 
@@ -52,7 +47,6 @@ export function AdminAuditsTab() {
 
     if (searchQuery.trim()) {
       const q = searchQuery.trim();
-      // Search across action/entity fields via case-insensitive match
       query = query.or(`action.ilike.%${q}%,entity_type.ilike.%${q}%`);
     }
 
@@ -63,9 +57,6 @@ export function AdminAuditsTab() {
       setError(err.message);
       setLogs([]);
     } else {
-      setLogs((data || []) as unknown as AuditLogRow[]);
-
-      // Second pass: resolve actor display names
       const rows = (data || []) as unknown as AuditLogRow[];
       const userIds = [
         ...new Set(rows.map((r) => r.actor_user_id).filter(Boolean) as string[]),
@@ -78,20 +69,21 @@ export function AdminAuditsTab() {
         const nameById = new Map(
           (profiles || []).map((p) => [
             p.id,
-            p.username || p.display_name || p.id.slice(0, 8),
+            p.display_name || p.username || p.id.slice(0, 8),
           ])
         );
         setLogs(
           rows.map((r) => ({ ...r, actor_name: nameById.get(r.actor_user_id!) }))
         );
+      } else {
+        setLogs(rows);
       }
 
       setTotal(count ?? 0);
     }
 
     setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, searchQuery]);
+  }, [page, searchQuery, supabase]);
 
   useEffect(() => {
     loadLogs();
@@ -103,16 +95,18 @@ export function AdminAuditsTab() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-black text-white">Audits</h2>
-        <p className="text-sm text-zinc-400 mt-1">
-          Immutable system history — payment decisions, admin actions, security events.
-          Written server-side only; nobody can forge entries from the browser.
+        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <Database className="h-5 w-5 text-[#E50914]" />
+          <span>System Audit Logs</span>
+        </h2>
+        <p className="text-xs text-zinc-400 mt-0.5">
+          Immutable system trail — payment approvals, password resets, account enable/disables, and security events.
         </p>
       </div>
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative flex-1 sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <input
             type="text"
@@ -121,78 +115,75 @@ export function AdminAuditsTab() {
               setPage(0);
               setSearchQuery(e.target.value);
             }}
-            placeholder="Search by action or entity type..."
-            className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 text-sm focus:border-[#E50914] focus:outline-none"
+            placeholder="Search action or entity..."
+            className="w-full pl-9 pr-4 py-2 rounded-full bg-zinc-900 border border-white/10 text-white placeholder:text-zinc-500 text-base sm:text-xs outline-none focus:border-[#E50914] transition-colors"
           />
         </div>
-        <div className="text-xs font-mono text-zinc-500">
-          {total} event{total === 1 ? "" : "s"} • page {page + 1}/{totalPages}
+        <div className="text-xs font-mono text-zinc-400">
+          {total} events • page {page + 1}/{totalPages}
         </div>
       </div>
 
       {/* List */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center py-12 rounded-2xl bg-[#141518]/90 border border-white/10">
           <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
         </div>
       ) : error ? (
-        <div className="text-center py-12 rounded-xl bg-red-500/5 border border-red-500/30">
-          <Database className="h-12 w-12 mx-auto mb-3 text-red-400 opacity-50" />
-          <p className="text-sm text-red-300 font-bold">Failed to load audit logs</p>
-          <p className="text-xs text-red-400/70 mt-1 font-mono">{error}</p>
+        <div className="text-center py-12 rounded-2xl bg-red-500/10 border border-red-500/30 p-6">
+          <Database className="h-10 w-10 mx-auto mb-2 text-red-400 opacity-60" />
+          <p className="text-xs text-red-300 font-bold">Failed to load audit logs: {error}</p>
         </div>
       ) : logs.length === 0 ? (
-        <div className="text-center py-12 text-zinc-400">
-          <ScrollText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+        <div className="text-center py-12 rounded-2xl bg-[#141518]/90 border border-white/10 text-zinc-400 text-xs">
+          <ScrollText className="h-8 w-8 mx-auto mb-2 opacity-30" />
           <p>No audit events found</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            Events appear here as admins approve payments and perform actions.
-          </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {logs.map((log) => (
             <details
               key={log.id}
-              className="rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-700 transition-colors group"
+              className="rounded-2xl bg-[#141518]/95 border border-white/10 hover:border-white/20 transition-colors group overflow-hidden"
             >
-              <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none">
-                <span className="px-2 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px] font-mono font-bold shrink-0">
-                  {log.action}
-                </span>
-                {log.entity_type && (
-                  <span className="text-[11px] text-zinc-500 font-mono hidden sm:inline">
-                    {log.entity_type}
+              <summary className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-4 cursor-pointer select-none">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-zinc-300 text-[10px] font-mono font-bold">
+                    {log.action}
                   </span>
-                )}
-                <span className="text-xs text-white font-semibold truncate flex-1 min-w-0">
-                  {log.actor_name ||
-                    (log.actor_user_id ? log.actor_user_id.slice(0, 8) : "system")}
+                  {log.entity_type && (
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      {log.entity_type}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-white font-bold truncate flex-1">
+                  Actor: {log.actor_name || (log.actor_user_id ? log.actor_user_id.slice(0, 8) : "system")}
                 </span>
-                <span className="text-[11px] text-zinc-500 font-mono shrink-0">
+                <span className="text-[10px] text-zinc-500 font-mono shrink-0">
                   {new Date(log.created_at).toLocaleString()}
                 </span>
               </summary>
 
-              <div className="px-4 pb-4 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="px-4 pb-4 pt-1 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs border-t border-white/5">
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
                     Before
                   </div>
-                  <pre className="p-2.5 rounded-lg bg-black border border-zinc-800 overflow-x-auto text-[11px] text-rose-300 whitespace-pre-wrap break-all">
+                  <pre className="p-3 rounded-xl bg-black border border-white/10 overflow-x-auto text-[10px] text-rose-300 whitespace-pre-wrap break-all">
                     {log.old_data ? JSON.stringify(log.old_data, null, 2) : "—"}
                   </pre>
                 </div>
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
                     After
                   </div>
-                  <pre className="p-2.5 rounded-lg bg-black border border-zinc-800 overflow-x-auto text-[11px] text-emerald-300 whitespace-pre-wrap break-all">
+                  <pre className="p-3 rounded-xl bg-black border border-white/10 overflow-x-auto text-[10px] text-emerald-300 whitespace-pre-wrap break-all">
                     {log.new_data ? JSON.stringify(log.new_data, null, 2) : "—"}
                   </pre>
                 </div>
                 {log.entity_id && (
-                  <div className="md:col-span-2 text-[11px] font-mono text-zinc-500">
+                  <div className="md:col-span-2 text-[10px] font-mono text-zinc-500">
                     entity_id: {log.entity_id}
                   </div>
                 )}
@@ -204,19 +195,21 @@ export function AdminAuditsTab() {
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-3 pt-4">
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 text-white text-sm font-bold transition-colors flex items-center gap-1"
+                className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <ChevronLeft className="h-4 w-4" /> Prev
               </button>
-              <span className="text-xs font-mono text-zinc-500">
+              <span className="text-xs font-mono text-zinc-400">
                 {page + 1} / {totalPages}
               </span>
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 text-white text-sm font-bold transition-colors flex items-center gap-1"
+                className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
               >
                 Next <ChevronRight className="h-4 w-4" />
               </button>

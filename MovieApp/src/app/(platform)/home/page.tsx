@@ -1,16 +1,21 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { AlertCircle } from "lucide-react";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { MediaShelf } from "@/components/movie/MediaShelf";
+import { ContinueWatchingShelf } from "@/components/movie/ContinueWatchingShelf";
+import { WatchlistShelf } from "@/components/movie/WatchlistShelf";
 import { HeroSpotlightCarousel } from "@/components/home/HeroSpotlightCarousel";
+import { SectionCatalogView } from "@/components/catalog/SectionCatalogView";
 import { useAppModals } from "@/components/layout/AppShell";
 import type { MediaItem } from "@/types/media";
 
 interface HomeShelfConfig {
   key: string;
   title: string;
+  subtitle?: string;
   seeAllHref: string;
   endpoint: string;
 }
@@ -19,192 +24,237 @@ const HOME_SHELVES_CONFIG: HomeShelfConfig[] = [
   {
     key: "trending",
     title: "Trending Now",
-    seeAllHref: "/trending",
-    endpoint: "/api/catalog/discover?sort_by=popularity.desc",
+    subtitle: "Most popular movies and series today",
+    seeAllHref: "/home?section=trending",
+    endpoint: "/api/catalog/trending?media_type=all&time_window=day",
   },
   {
     key: "topMovies",
-    title: "Top Movies",
-    seeAllHref: "/top-rated",
+    title: "Top-Rated Movies",
+    subtitle: "Critically acclaimed all-time favorites",
+    seeAllHref: "/home?section=topMovies",
     endpoint: "/api/catalog/discover?media_type=movie&sort_by=vote_average.desc&vote_count_gte=500",
   },
   {
     key: "horrorSuspense",
     title: "Horror & Suspense",
-    seeAllHref: "/discover?genre=27,53",
+    subtitle: "Chilling hauntings and dark thrillers",
+    seeAllHref: "/home?section=horrorSuspense",
     endpoint: "/api/catalog/discover?genre=27,53&sort_by=popularity.desc",
   },
   {
     key: "trendingAnime",
     title: "Trending Anime Series",
-    seeAllHref: "/anime",
+    subtitle: "Seasonal hits and simulcasts",
+    seeAllHref: "/home?section=trendingAnime",
     endpoint: "/api/catalog/discover?media_type=anime&sort_by=popularity.desc",
   },
   {
     key: "topAnimeMovies",
     title: "Iconic & Top-Rated Anime Movies",
-    seeAllHref: "/anime?type=movie",
+    subtitle: "Legendary animated features from Japan",
+    seeAllHref: "/home?section=topAnimeMovies",
     endpoint: "/api/catalog/discover?media_type=movie&genre=16&country=JP&sort_by=popularity.desc",
   },
   {
     key: "recentAdded",
     title: "Recently Added Movies",
-    seeAllHref: "/discover?sort_by=primary_release_date.desc",
+    subtitle: "Fresh releases and new additions",
+    seeAllHref: "/home?section=recentAdded",
     endpoint: "/api/catalog/discover?sort_by=primary_release_date.desc",
   },
   {
     key: "thrillers",
     title: "High-Octane & Psychological Thrillers",
-    seeAllHref: "/discover?genre=53",
+    subtitle: "Edge-of-your-seat suspense and twists",
+    seeAllHref: "/home?section=thrillers",
     endpoint: "/api/catalog/discover?genre=53&sort_by=popularity.desc",
   },
   {
     key: "action",
     title: "Action & Adventure Movies",
-    seeAllHref: "/discover?genre=28,12",
+    subtitle: "Blockbuster missions and explosive battles",
+    seeAllHref: "/home?section=action",
     endpoint: "/api/catalog/discover?genre=28,12&sort_by=popularity.desc",
   },
   {
     key: "comedy",
     title: "Comedy Movies",
-    seeAllHref: "/discover?genre=35",
+    subtitle: "Laughs and lighthearted adventures",
+    seeAllHref: "/home?section=comedy",
     endpoint: "/api/catalog/discover?genre=35&sort_by=popularity.desc",
   },
   {
-    key: "horror",
-    title: "Horror Movies",
-    seeAllHref: "/discover?genre=27",
-    endpoint: "/api/catalog/discover?genre=27&sort_by=popularity.desc",
-  },
-  {
     key: "crime",
-    title: "Crime Movies",
-    seeAllHref: "/discover?genre=80",
+    title: "Crime & Heist Movies",
+    subtitle: "Underworld rackets and detective hunts",
+    seeAllHref: "/home?section=crime",
     endpoint: "/api/catalog/discover?genre=80&sort_by=popularity.desc",
   },
   {
     key: "romance",
     title: "Romance Movies",
-    seeAllHref: "/discover?genre=10749",
+    subtitle: "Heartwarming love stories and dramas",
+    seeAllHref: "/home?section=romance",
     endpoint: "/api/catalog/discover?genre=10749&sort_by=popularity.desc",
   },
   {
     key: "family",
-    title: "Kids and Family Movies",
-    seeAllHref: "/discover?genre=10751,16",
+    title: "Kids & Family Movies",
+    subtitle: "Fun adventures for the whole family",
+    seeAllHref: "/home?section=family",
     endpoint: "/api/catalog/discover?genre=10751,16&sort_by=popularity.desc",
-  },
-  {
-    key: "history",
-    title: "Historical Movies",
-    seeAllHref: "/discover?genre=36",
-    endpoint: "/api/catalog/discover?genre=36&sort_by=popularity.desc",
   },
   {
     key: "scifi",
     title: "Science Fiction Movies",
-    seeAllHref: "/discover?genre=878",
+    subtitle: "Futuristic sagas and alien discoveries",
+    seeAllHref: "/home?section=scifi",
     endpoint: "/api/catalog/discover?genre=878&sort_by=popularity.desc",
-  },
-  {
-    key: "feelgood",
-    title: "Feel-Good Movies",
-    seeAllHref: "/discover?genre=35,10751",
-    endpoint: "/api/catalog/discover?genre=35,10751&sort_by=popularity.desc",
-  },
-  {
-    key: "war",
-    title: "Military and War Movies",
-    seeAllHref: "/discover?genre=10752",
-    endpoint: "/api/catalog/discover?genre=10752&sort_by=popularity.desc",
-  },
-  {
-    key: "youngAdult",
-    title: "Young Adult Movies",
-    seeAllHref: "/discover?genre=18,10749",
-    endpoint: "/api/catalog/discover?genre=18,10749&sort_by=popularity.desc",
-  },
-  {
-    key: "sports",
-    title: "Sports Movies",
-    seeAllHref: "/discover?genre=sports",
-    endpoint: "/api/catalog/discover?genre=sports&sort_by=popularity.desc",
-  },
-  {
-    key: "western",
-    title: "Western Movies",
-    seeAllHref: "/discover?genre=37",
-    endpoint: "/api/catalog/discover?genre=37&sort_by=popularity.desc",
   },
 ];
 
-export default function HomePage() {
+function HomeFeed() {
+  const searchParams = useSearchParams();
+  const activeSectionKey = searchParams.get("section");
   const { openTrailer } = useAppModals();
+  const { user } = useAuth();
+
   const [spotlightItems, setSpotlightItems] = useState<MediaItem[]>([]);
   const [shelvesData, setShelvesData] = useState<Record<string, MediaItem[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPendingPayment, setIsPendingPayment] = useState(false);
+
+  const selectedSection = HOME_SHELVES_CONFIG.find((s) => s.key === activeSectionKey);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadAllHomeShelves = async () => {
-      // 1. First load high-priority trending & spotlight items instantly
       try {
-        const trendingRes = await fetch(HOME_SHELVES_CONFIG[0].endpoint);
-        if (trendingRes.ok) {
-          const data = await trendingRes.json();
-          const list: MediaItem[] = data.results || [];
+        setLoading(true);
+
+        // 1. Fetch Spotlight
+        const spotRes = await fetch("/api/catalog/trending?media_type=all&time_window=day");
+        if (spotRes.ok) {
+          const data = await spotRes.json();
           if (isMounted) {
-            const validSpotlights = list.filter(
-              (item: MediaItem) =>
-                Boolean(item.backdrop_path || item.poster_path) &&
-                Boolean(item.title || item.name)
-            );
-            setSpotlightItems(validSpotlights.slice(0, 8));
-            setShelvesData((prev) => ({ ...prev, [HOME_SHELVES_CONFIG[0].key]: list }));
+            setSpotlightItems((data.results || []).slice(0, 10));
           }
+        }
+
+        // 2. Concurrently fetch shelves
+        const fetches = HOME_SHELVES_CONFIG.map(async (shelf) => {
+          try {
+            const res = await fetch(shelf.endpoint);
+            if (!res.ok) return { key: shelf.key, items: [] };
+            const json = await res.json();
+            return { key: shelf.key, items: (json.results || json.items || []).slice(0, 20) };
+          } catch {
+            return { key: shelf.key, items: [] };
+          }
+        });
+
+        const results = await Promise.all(fetches);
+        if (isMounted) {
+          const map: Record<string, MediaItem[]> = {};
+          for (const r of results) {
+            map[r.key] = r.items;
+          }
+          setShelvesData(map);
         }
       } catch (e) {
-        console.error("Failed to load initial trending shelf", e);
-      }
-
-      // 2. Fetch all other category shelves concurrently
-      const secondaryShelves = HOME_SHELVES_CONFIG.slice(1);
-      const promises = secondaryShelves.map(async (shelf) => {
-        try {
-          const res = await fetch(shelf.endpoint);
-          if (res.ok) {
-            const json = await res.json();
-            return { key: shelf.key, items: json.results || [] };
-          }
-        } catch {
-          // silently fail single shelf
-        }
-        return { key: shelf.key, items: [] };
-      });
-
-      const results = await Promise.all(promises);
-      if (isMounted) {
-        setShelvesData((prev) => {
-          const next = { ...prev };
-          results.forEach((r) => {
-            if (r.items.length > 0) {
-              next[r.key] = r.items;
-            }
-          });
-          return next;
-        });
+        console.error("Home page load failed", e);
+        if (isMounted) setError("Failed to load your home feed. Please try again later.");
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
 
     loadAllHomeShelves();
-
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const { user } = useAuth();
-  const isPendingPayment = user.isLoggedIn && user.role === 'user' && user.tier === 'free';
+  // Check pending payment
+  useEffect(() => {
+    let cancelled = false;
+    if (!user.isLoggedIn || !user.id || user.role !== "user") {
+      setIsPendingPayment(false);
+      return;
+    }
+    (async () => {
+      try {
+        const { subscriptionService } = await import(
+          "@/lib/services/subscription-service"
+        );
+        const submissions = await subscriptionService.getUserPaymentSubmissions(
+          user.id!
+        );
+        if (!cancelled) {
+          setIsPendingPayment(
+            submissions.some((s) => s.status === "pending")
+          );
+        }
+      } catch {
+        if (!cancelled) setIsPendingPayment(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.isLoggedIn, user.id, user.role]);
+
+  // Section view for in-context See All
+  if (selectedSection) {
+    return (
+      <SectionCatalogView
+        title={selectedSection.title}
+        subtitle={selectedSection.subtitle}
+        endpoint={selectedSection.endpoint}
+        backHref="/home"
+        backLabel="Back to Home"
+        onOpenTrailer={openTrailer}
+      />
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col select-none">
+        <div className="aspect-[21/9] bg-neutral-900/50 animate-pulse" />
+        <div className="relative z-20 -mt-14 sm:-mt-20 space-y-8 sm:space-y-10 px-4 sm:px-6 lg:px-10 pb-16">
+          {HOME_SHELVES_CONFIG.slice(0, 3).map((shelf) => (
+            <div key={shelf.key} className="animate-pulse space-y-4">
+              <div className="h-6 bg-neutral-800 w-1/4 rounded" />
+              <div className="h-48 bg-neutral-900/50 rounded-lg" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col select-none">
+        <div className="aspect-[21/9] bg-neutral-900/50 flex items-center justify-center">
+          <div className="text-center text-neutral-400 px-8">
+            <div className="text-xl font-semibold mb-2">Unable to load your home feed</div>
+            <div className="text-sm mb-4">{error}</div>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-[#E50914] hover:bg-[#ff1f3d] rounded-lg text-sm font-medium text-white cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col select-none">
@@ -234,7 +284,13 @@ export default function HomePage() {
       />
 
       {/* ─── 2. Sequential Category Media Shelves Container ─── */}
-      <div className="relative z-20 -mt-14 sm:-mt-20 space-y-8 sm:space-y-10 px-4 sm:px-6 lg:px-10 pb-16">
+      <div className="relative z-20 mt-4 sm:-mt-12 lg:-mt-16 space-y-8 sm:space-y-10 px-4 sm:px-6 lg:px-10 pb-16">
+        {/* Continue Watching */}
+        <ContinueWatchingShelf />
+
+        {/* Watchlist */}
+        <WatchlistShelf />
+
         {HOME_SHELVES_CONFIG.map((shelf) => {
           const items = shelvesData[shelf.key] || [];
           if (items.length === 0) return null;
@@ -243,6 +299,7 @@ export default function HomePage() {
             <MediaShelf
               key={shelf.key}
               title={shelf.title}
+              subtitle={shelf.subtitle}
               seeAllHref={shelf.seeAllHref}
               items={items}
               onOpenTrailer={openTrailer}
@@ -251,5 +308,20 @@ export default function HomePage() {
         })}
       </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24 gap-3 text-zinc-400">
+          <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+          <span className="text-xs">Loading Lantawon home...</span>
+        </div>
+      }
+    >
+      <HomeFeed />
+    </Suspense>
   );
 }

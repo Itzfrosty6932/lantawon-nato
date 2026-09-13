@@ -27,6 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 import { audioFX } from "@/lib/audio/audio-fx";
 import { useToast } from "@/components/ui/Toast";
 import { subscriptionService } from "@/lib/services/subscription-service";
+import { SOLO_PASS_PRICE_PHP } from "@/lib/constants/pricing";
 import { LantawonIcon } from "@/components/brand/BrandLogo";
 
 export default function SignupPage() {
@@ -69,7 +70,7 @@ function SignupFunnel() {
   // Single Solo Plan Details
   const soloPlan = {
     name: "Lantawon Solo Pass",
-    price: 349,
+    price: SOLO_PASS_PRICE_PHP,
     screens: 1,
     billing: "monthly",
   };
@@ -146,6 +147,13 @@ function SignupFunnel() {
       return;
     }
 
+    if (!proofFileRef.current && !proofPathRef.current) {
+      setErrorMessage(
+        "Please upload your GCash / Maya receipt screenshot — this is required as proof of payment."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMessage(null);
     audioFX.playClick();
@@ -208,6 +216,8 @@ function SignupFunnel() {
 
       // AUDIT H2: the receipt is uploaded NOW — after signUp() — so it lands
       // inside the new user's own private folder ({uid}/{timestamp}.{ext}).
+      // Receipt is REQUIRED, so upload failure is fatal — the admin cannot
+      // verify a manual GCash payment without a visual proof.
       if (proofFileRef.current && !proofPathRef.current) {
         const { uploadPaymentProof } = await import("@/lib/services/payment-proof");
         const uploadRes = await uploadPaymentProof(
@@ -217,24 +227,46 @@ function SignupFunnel() {
         if (uploadRes.path) {
           proofPathRef.current = uploadRes.path;
         } else {
-          console.warn("[Signup] Proof upload failed:", uploadRes.error);
+          throw new Error(
+            uploadRes.error ||
+              "Could not upload your receipt. Please try again with a different image."
+          );
         }
       }
 
-      let account = await subscriptionService.getUserAccount(currentUserId);
-      if (!account) {
-        const createRes = await subscriptionService.createAccount(
-          currentUserId,
-          `${username}'s Account`
+      if (!proofPathRef.current) {
+        throw new Error(
+          "Please upload your GCash / Maya receipt screenshot — this is required as proof of payment."
         );
-        if (createRes.success && createRes.accountId) {
-          account = await subscriptionService.getUserAccount(currentUserId);
-        }
       }
 
-      if (!account) {
+      // Account provisioning goes through /api/accounts/create — server-side
+      // service-role bypasses the RLS/session-cookie timing race that was
+      // making the browser client's insert fail with an empty error right
+      // after signup.
+      const accountRes = await fetch("/api/accounts/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `${username}'s Account` }),
+      });
+
+      if (!accountRes.ok) {
+        const err = await accountRes.json().catch(() => ({}));
+        throw new Error(
+          err.error || "Could not set up your account. Please try again."
+        );
+      }
+
+      const accountJson = (await accountRes.json()) as {
+        ok?: boolean;
+        accountId?: string;
+      };
+
+      if (!accountJson.accountId) {
         throw new Error("Could not set up your account. Please try again.");
       }
+
+      const account = { id: accountJson.accountId };
 
       const submitRes = await fetch("/api/payments/submit", {
         method: "POST",
@@ -348,7 +380,7 @@ function SignupFunnel() {
                     {soloPlan.name}
                   </span>
                   <span className="text-xs text-zinc-400">
-                    1 Active Screen • Zero Ads
+                    1 Active Screen • 1080p FHD
                   </span>
                 </div>
               </div>
@@ -459,7 +491,7 @@ function SignupFunnel() {
               type="submit"
               className="w-full h-12 rounded-xl bg-[#E50914] hover:bg-[#b80710] text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-xl shadow-[#E50914]/30 cursor-pointer"
             >
-              <span>Continue to Payment (₱349 / mo)</span>
+              <span>Continue to Payment (₱{soloPlan.price} / mo)</span>
               <ArrowRight className="h-4 w-4" />
             </button>
 
@@ -472,7 +504,7 @@ function SignupFunnel() {
           </form>
         )}
 
-        {/* ─── STEP 2: PAYMENT (₱349 GCASH / MAYA QR) ─── */}
+        {/* ─── STEP 2: PAYMENT (GCASH / MAYA QR) ─── */}
         {step === "payment" && (
           <form onSubmit={handleSubmitPayment} className="space-y-5 animate-in fade-in duration-300">
             <div className="flex items-center gap-3">
@@ -550,7 +582,7 @@ function SignupFunnel() {
               </div>
 
               <p className="text-[11px] text-zinc-400">
-                Scan the QR code using your GCash or Maya app for <strong className="text-white">₱349</strong>, then enter the Reference Number below.
+                Scan the QR code using your GCash or Maya app for <strong className="text-white">₱{soloPlan.price}</strong>, then enter the Reference Number below.
               </p>
             </div>
 
@@ -573,10 +605,16 @@ function SignupFunnel() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
-                  <span>Payment Screenshot (Optional)</span>
-                  {proofImage && (
+                  <span>
+                    Payment Screenshot <span className="text-[#E50914]">*</span>
+                  </span>
+                  {proofImage ? (
                     <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-bold">
                       <CheckCircle2 className="h-3 w-3" /> ATTACHED
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#E50914] font-mono font-bold">
+                      REQUIRED
                     </span>
                   )}
                 </label>
@@ -591,7 +629,7 @@ function SignupFunnel() {
                         Click to upload GCash / Maya receipt screenshot
                       </span>
                       <span className="text-[10px] text-zinc-400 block font-medium">
-                        Supports JPG, PNG, WEBP (Max 10MB)
+                        Required as proof of payment • JPG, PNG, WEBP (Max 10MB)
                       </span>
                     </div>
                     <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />

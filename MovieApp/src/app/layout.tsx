@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider } from "@/context/AuthContext";
 import { NavigationLoadingProvider } from "@/components/ui/NavigationLoadingProvider";
@@ -18,6 +18,17 @@ export const metadata: Metadata = {
     ],
   },
   manifest: "/manifest.json",
+};
+
+// viewportFit=cover lets the app paint under the iPhone notch/home indicator;
+// the safe-area utilities in globals.css pad content back out of those zones.
+// maximumScale is deliberately NOT pinned — clamping zoom breaks pinch-to-zoom
+// for low-vision users. iOS focus-zoom is stopped by the 16px input rule instead.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0D0D0D",
 };
 
 export default function RootLayout({

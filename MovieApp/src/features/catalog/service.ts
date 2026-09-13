@@ -119,10 +119,12 @@ export class CatalogService {
         qp.with_genres = genreParam ? `16,${genreParam}` : "16";
         qp.with_origin_country = "JP";
         qp.with_original_language = "ja";
-      } else if (mediaType === "animation") {
+      } else if (mediaType === "animation" || mediaType === "cartoons" || mediaType === "cartoon") {
         qp.with_genres = genreParam ? `16,${genreParam}` : "16";
-      } else if (mediaType === "documentary") {
-        qp.with_genres = "99";
+      } else if (mediaType === "documentary" || mediaType === "documentaries") {
+        qp.with_genres = genreParam ? `99,${genreParam}` : "99";
+      } else if (mediaType === "asian" || mediaType === "asian-cinema") {
+        qp.with_origin_country = country && country !== "ALL" ? country : "KR|JP|CN|HK|TW|TH|PH|ID|VN";
       } else if (genreParam) {
         qp.with_genres = genreParam;
       }
@@ -131,7 +133,7 @@ export class CatalogService {
         qp.with_keywords = keywordParam;
       }
 
-      if (country && country !== "ALL" && mediaType !== "anime") {
+      if (country && country !== "ALL" && mediaType !== "anime" && mediaType !== "asian" && mediaType !== "asian-cinema") {
         qp.with_origin_country = country;
       }
 
@@ -155,12 +157,14 @@ export class CatalogService {
         qp[dateFieldLte] = today;
       }
 
-
-      // Exclude documentaries (99), News (10763), Talk shows (10767) from general discovery
-      if (targetEndpoint === "discover/tv") {
-        qp.without_genres = "99,10763,10767";
-      } else {
-        qp.without_genres = "99";
+      // Exclude documentaries (99), News (10763), Talk shows (10767) from general discovery ONLY if 99 is not explicitly requested
+      const isDocRequested = qp.with_genres && String(qp.with_genres).includes("99");
+      if (!isDocRequested) {
+        if (targetEndpoint === "discover/tv") {
+          qp.without_genres = "99,10763,10767";
+        } else {
+          qp.without_genres = "99";
+        }
       }
 
       // Exclude explicit erotica, softcore, Vivamax, and heavy nudity keywords from public shelves & carousels
@@ -234,6 +238,26 @@ export class CatalogService {
       total_pages: Math.max(sanitizedMovies.total_pages, sanitizedTv.total_pages),
       total_results: sanitizedMovies.total_results + sanitizedTv.total_results,
     };
+  }
+
+  /**
+   * Real TMDB trending algorithm (view-velocity based), NOT a popularity.desc
+   * discover sort — those are different rankings. Used by Home/Shows'
+   * "Trending" shelves and hero carousels so "trending" actually means it.
+   */
+  static async trending(
+    mediaType: "all" | "movie" | "tv" = "all",
+    timeWindow: "day" | "week" = "day"
+  ): Promise<TmdbPaginatedResponse<MediaItem>> {
+    const today = new Date().toISOString().split("T")[0];
+    const data = await fetchTmdb<TmdbPaginatedResponse<MediaItem & { media_type?: string }>>(
+      `trending/${mediaType}/${timeWindow}`
+    );
+    const withoutPeople: TmdbPaginatedResponse<MediaItem> = {
+      ...data,
+      results: (data.results || []).filter((item: any) => item.media_type !== "person"),
+    };
+    return CatalogService.sanitizeResults(withoutPeople, mediaType === "tv" ? "tv" : "movie", today);
   }
 
   /**

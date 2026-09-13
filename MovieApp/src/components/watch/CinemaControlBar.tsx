@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { STREAM_SERVERS } from "@/lib/constants/streaming-servers";
 import { audioFX } from "@/lib/audio/audio-fx";
+import { formatDataSizeMb } from "@/lib/utils/formatters";
 
 interface CinemaControlBarProps {
   activeServer: string;
@@ -158,7 +159,7 @@ export function CinemaControlBar({
             {!isOfflineMode && (
               <span className="rounded-md bg-[#242526] border border-zinc-700/80 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 font-semibold inline-flex items-center gap-1">
                 <BarChart2 className="h-2.5 w-2.5 text-emerald-400" />
-                <span>{dataUsedMb} MB</span>
+                <span>{formatDataSizeMb(dataUsedMb)}</span>
               </span>
             )}
           </div>
@@ -195,7 +196,7 @@ export function CinemaControlBar({
               title="Estimated Mobile Data Consumed"
             >
               <BarChart2 className="h-3 w-3 text-emerald-400" />
-              <span>{dataUsedMb} MB</span>
+              <span>{formatDataSizeMb(dataUsedMb)}</span>
             </span>
           )}
 

@@ -121,8 +121,25 @@ export async function registerDevice(): Promise<{
   });
 
   if (error) {
-    console.error("[registerDevice]", error);
-    throw error;
+    console.warn("[registerDevice] RPC failed:", {
+      message: error.message || "(no message)",
+      code: (error as any).code,
+      details: (error as any).details,
+      hint: (error as any).hint,
+    });
+    return { deviceId: "", isNewDevice: false, otherDeviceIds: [] };
+  }
+
+  // ─── STRICT SINGLE-DEVICE CONCURRENCY ───
+  // Deactivate all other registered devices for this user so only current device remains active
+  try {
+    await supabase
+      .from("user_devices")
+      .update({ is_active: false })
+      .eq("user_id", user.id)
+      .neq("device_fingerprint", fingerprint);
+  } catch (deactivateErr) {
+    console.warn("[registerDevice] Other devices deactivation note:", deactivateErr);
   }
 
   return {
@@ -130,6 +147,48 @@ export async function registerDevice(): Promise<{
     isNewDevice: data?.[0]?.is_new_device ?? false,
     otherDeviceIds: data?.[0]?.other_device_ids ?? [],
   };
+}
+
+/**
+ * Check if the current device session is still active and valid
+ * Returns false if user was logged in from another device
+ */
+export async function checkCurrentDeviceActive(): Promise<{
+  isActive: boolean;
+  reason?: string;
+}> {
+  if (typeof window === "undefined") return { isActive: true };
+
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { isActive: true };
+
+    const fingerprint = generateDeviceFingerprint();
+
+    const { data, error } = await supabase
+      .from("user_devices")
+      .select("is_active, blocked_at")
+      .eq("user_id", user.id)
+      .eq("device_fingerprint", fingerprint)
+      .maybeSingle();
+
+    if (error) {
+      // Don't log out user on temporary network glitch
+      return { isActive: true };
+    }
+
+    if (data && (data.is_active === false || data.blocked_at !== null)) {
+      return { isActive: false, reason: "device_superseded" };
+    }
+
+    return { isActive: true };
+  } catch {
+    return { isActive: true };
+  }
 }
 
 /**

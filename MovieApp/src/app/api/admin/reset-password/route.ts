@@ -6,13 +6,9 @@ import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 /**
  * POST /api/admin/reset-password   (ADMIN ONLY)
  *
- * Manual password-reset flow, step 2 (admin side): issues a temporary
- * password for a user. The password is returned ONCE in this response —
- * the admin relays it to the member via their manual Gmail/chat contact.
- * It is never stored or shown again.
+ * Manual password-reset flow: sets a custom password or generates a temporary password.
  *
- * Body: { userId } — optionally { ticketId } to auto-resolve the linked
- * forgot_password ticket.
+ * Body: { userId, password?, ticketId? }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +16,7 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as {
       userId?: string;
+      password?: string;
       ticketId?: string;
     };
 
@@ -27,20 +24,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Valid userId is required." }, { status: 400 });
     }
 
-    // GoTrue requires ≥6 chars; base64url of 9 bytes ≈ 12 chars.
-    const tempPassword = randomBytes(9).toString("base64url");
+    let finalPassword = body.password?.trim();
+    if (finalPassword) {
+      if (finalPassword.length < 6) {
+        return NextResponse.json(
+          { error: "Password must be at least 6 characters." },
+          { status: 400 }
+        );
+      }
+    } else {
+      // GoTrue requires ≥6 chars; base64url of 9 bytes ≈ 12 chars.
+      finalPassword = randomBytes(9).toString("base64url");
+    }
 
     const supabase = createAdminSupabaseClient();
     const { error } = await supabase.auth.admin.updateUserById(body.userId, {
-      password: tempPassword,
+      password: finalPassword,
     });
     if (error) {
       console.error("[admin/reset-password] updateUserById failed:", error);
-      return NextResponse.json({ error: "Failed to reset password." }, { status: 500 });
+      return NextResponse.json({ error: error.message || "Failed to reset password." }, { status: 500 });
     }
 
-    // Resolve any open forgot_password tickets for this user so support
-    // sees the request was handled.
+    // Resolve any open forgot_password tickets for this user
     let resolvedTickets = 0;
     try {
       const query = supabase
@@ -56,22 +62,24 @@ export async function POST(req: NextRequest) {
       console.warn("[admin/reset-password] ticket resolution failed:", e);
     }
 
-    console.log(
-      `[admin/reset-password] admin ${adminIdentity.userId} reset password for user ${body.userId} (${resolvedTickets} ticket(s) resolved)`
-    );
+    await supabase.from("audit_logs").insert({
+      actor_user_id: adminIdentity.userId,
+      action: "admin.user_password_reset",
+      entity_type: "auth.users",
+      entity_id: body.userId,
+      new_data: { resolvedTickets, customPasswordSet: Boolean(body.password) },
+    });
 
     return NextResponse.json({
       ok: true,
-      tempPassword,
-      resolvedTickets,
-      notice:
-        "Send this temporary password to the member via Gmail/chat. It is shown only once.",
+      tempPassword: finalPassword,
+      message: "Password reset successfully.",
     });
-  } catch (e) {
-    if (e instanceof UnauthorizedError || e instanceof Error && e.message === "Unauthorized") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
     }
-    console.error("[admin/reset-password]", e);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    console.error("[admin/reset-password] unexpected error:", err);
+    return NextResponse.json({ error: "Failed to reset password." }, { status: 500 });
   }
 }

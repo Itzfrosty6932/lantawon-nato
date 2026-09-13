@@ -101,72 +101,38 @@ export function StatisticsTabViews({
   }
 
   if (activeTab === "library") {
+    const unifiedList = library.filter((l) => l.inWatchlist || l.isFavorite);
     return (
       <div className="space-y-4">
         {/* Watchlist */}
         <div className="rounded-2xl bg-[#18191a] border border-zinc-800/80 p-5 space-y-4 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-300">
             <Bookmark className="h-4 w-4 text-amber-400" />
-            <span>Watchlist ({watchlistCount})</span>
+            <span>Saved Watchlist ({unifiedList.length})</span>
           </div>
 
-          {library.filter((l) => l.inWatchlist).length === 0 ? (
+          {unifiedList.length === 0 ? (
             <div className="text-center py-6 text-zinc-500 text-sm">
               Nothing in your watchlist yet.
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2">
-              {library
-                .filter((l) => l.inWatchlist)
-                .map((l, idx) => (
-                  <div key={`stat_wl_${l.id}_${idx}`} className="space-y-1">
-                    <SmartImage
-                      src={
-                        l.posterPath
-                          ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${l.posterPath.startsWith("/") ? "" : "/"}${l.posterPath}`
-                          : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
-                      }
-                      alt={l.title}
-                      fallbackType="poster"
-                      containerClassName="w-full aspect-[2/3] rounded-lg border border-white/10 bg-zinc-800"
-                      className="h-full w-full object-cover"
-                    />
-                    <div className="text-[9px] text-zinc-300 truncate">{l.title}</div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-
-        {/* Favorites */}
-        <div className="rounded-2xl bg-[#18191a] border border-zinc-800/80 p-5 space-y-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-300">
-            <Heart className="h-4 w-4 text-rose-400" />
-            <span>Favorites ({favCount})</span>
-          </div>
-
-          {library.filter((l) => l.isFavorite).length === 0 ? (
-            <div className="text-center py-6 text-zinc-500 text-sm">No favorites yet.</div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2">
-              {library
-                .filter((l) => l.isFavorite)
-                .map((l, idx) => (
-                  <div key={`stat_fav_${l.id}_${idx}`} className="space-y-1">
-                    <SmartImage
-                      src={
-                        l.posterPath
-                          ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${l.posterPath.startsWith("/") ? "" : "/"}${l.posterPath}`
-                          : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
-                      }
-                      alt={l.title}
-                      fallbackType="poster"
-                      containerClassName="w-full aspect-[2/3] rounded-lg border border-white/10 bg-zinc-800"
-                      className="h-full w-full object-cover"
-                    />
-                    <div className="text-[9px] text-zinc-300 truncate">{l.title}</div>
-                  </div>
-                ))}
+              {unifiedList.map((l, idx) => (
+                <div key={`stat_wl_${l.id}_${idx}`} className="space-y-1">
+                  <SmartImage
+                    src={
+                      l.posterPath
+                        ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${l.posterPath.startsWith("/") ? "" : "/"}${l.posterPath}`
+                        : TMDB_IMAGE_CONFIG.FALLBACK_POSTER
+                    }
+                    alt={l.title}
+                    fallbackType="poster"
+                    containerClassName="w-full aspect-[2/3] rounded-lg border border-white/10 bg-zinc-800"
+                    className="h-full w-full object-cover"
+                  />
+                  <div className="text-[9px] text-zinc-300 truncate">{l.title}</div>
+                </div>
+              ))}
             </div>
           )}
         </div>

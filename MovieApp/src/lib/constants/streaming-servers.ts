@@ -4,6 +4,7 @@ export interface StreamServerDefinition {
   badge: string;
   quality: string;
   description: string;
+  category?: "movie" | "tv" | "anime" | "all";
   tier: 1 | 2 | 3;
   isCleanHd: boolean;
   noWatermark: boolean;
@@ -11,14 +12,205 @@ export interface StreamServerDefinition {
   buildUrl: (id: string, isTv: boolean, s: number, e: number) => string;
 }
 
-export const STREAM_SERVERS: StreamServerDefinition[] = [
-  // ─── TIER 1: Top Verified Clean HD / Fast Servers (Zero DNS / Zero Sandbox Issues) ───
+// ─── 1. MOVIE-OPTIMIZED DEDICATED SERVERS ──────────────────────────────────
+export const MOVIE_SERVERS: StreamServerDefinition[] = [
   {
     id: "server1",
-    name: "VidSrc TO (Direct Cloud)",
-    badge: "💎 Cloud Direct HD",
+    name: "Server 1",
+    badge: "1080p",
     quality: "1080p Full-HD",
-    description: "Primary ultra-fast direct cloud stream player with instant initialization, responsive scrubbing, and zero throttling.",
+    description: "Direct cloud cinema mirror with full uncut runtime & low latency.",
+    category: "movie",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id) => `https://vidsrc.to/embed/movie/${id}`,
+  },
+  {
+    id: "server2",
+    name: "Server 2",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "High-speed direct cinema stream with multi-subtitles.",
+    category: "movie",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id) => `https://vidlink.pro/movie/${id}`,
+  },
+  {
+    id: "server3",
+    name: "Server 3",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "MultiEmbed direct player with internal fallbacks & widest coverage.",
+    category: "movie",
+    tier: 1,
+    isCleanHd: false,
+    noWatermark: false,
+    multiAudio: false,
+    buildUrl: (id) => `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+  },
+  {
+    id: "server4",
+    name: "Server 4",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Auto-fallback multi-stream cinema player with high speed.",
+    category: "movie",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id) => `https://player.autoembed.cc/embed/movie/${id}`,
+  },
+  {
+    id: "server5",
+    name: "Server 5",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Fast global CDN movie stream with crisp quality.",
+    category: "movie",
+    tier: 2,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id) => `https://vidsrc.net/embed/movie/${id}`,
+  },
+  {
+    id: "server6",
+    name: "Server 6",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "High-uptime established movie mirror.",
+    category: "movie",
+    tier: 2,
+    isCleanHd: false,
+    noWatermark: false,
+    multiAudio: false,
+    buildUrl: (id) => `https://www.2embed.cc/embed/${id}`,
+  },
+  {
+    id: "server7",
+    name: "Server 7",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Clean modern fast cinema node.",
+    category: "movie",
+    tier: 2,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id) => `https://rivestream.live/embed?type=movie&id=${id}`,
+  },
+];
+
+// ─── 2. TV SERIES DEDICATED SERVERS ────────────────────────────────────────
+export const TV_SERVERS: StreamServerDefinition[] = [
+  {
+    id: "server1",
+    name: "Server 1",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "VidSrc Cloud TV series stream with complete seasons and fast buffering.",
+    category: "tv",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://vidsrc.to/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    id: "server2",
+    name: "Server 2",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Primary high-speed TV series stream with full seasons & multi-subtitles.",
+    category: "tv",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://vidlink.pro/tv/${id}/${s}/${e}`,
+  },
+  {
+    id: "server3",
+    name: "Server 3",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "MultiEmbed player for TV series with internal multi-CDN fallback.",
+    category: "tv",
+    tier: 1,
+    isCleanHd: false,
+    noWatermark: false,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`,
+  },
+  {
+    id: "server4",
+    name: "Server 4",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Auto-fallback TV stream with subtitle selection.",
+    category: "tv",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://player.autoembed.cc/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    id: "server5",
+    name: "Server 5",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Fast global CDN TV series stream.",
+    category: "tv",
+    tier: 2,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://vidsrc.net/embed/tv/${id}/${s}/${e}`,
+  },
+  {
+    id: "server6",
+    name: "Server 6",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "High-uptime established TV series mirror.",
+    category: "tv",
+    tier: 2,
+    isCleanHd: false,
+    noWatermark: false,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
+  },
+  {
+    id: "server7",
+    name: "Server 7",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Clean modern fast series node.",
+    category: "tv",
+    tier: 2,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: false,
+    buildUrl: (id, _isTv, s, e) => `https://rivestream.live/embed?type=series&id=${id}&season=${s}&episode=${e}`,
+  },
+];
+
+// ─── 3. ANIME-OPTIMIZED DEDICATED SERVERS ──────────────────────────────────
+export const ANIME_SERVERS: StreamServerDefinition[] = [
+  {
+    id: "server1",
+    name: "Server 1",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Cloud anime player with full episodes and low latency.",
+    category: "anime",
     tier: 1,
     isCleanHd: true,
     noWatermark: true,
@@ -30,10 +222,43 @@ export const STREAM_SERVERS: StreamServerDefinition[] = [
   },
   {
     id: "server2",
-    name: "AutoEmbed (Smart Geo-CDN)",
-    badge: "💎 Smart CDN · 1080p",
+    name: "Server 2",
+    badge: "1080p",
     quality: "1080p Full-HD",
-    description: "Intelligent geo-routed video delivery network with adaptive quality scaling and zero sandbox checks.",
+    description: "Direct anime stream with multi-subtitles and fast buffering.",
+    category: "anime",
+    tier: 1,
+    isCleanHd: true,
+    noWatermark: true,
+    multiAudio: true,
+    buildUrl: (id, isTv, s, e) =>
+      isTv
+        ? `https://vidlink.pro/tv/${id}/${s}/${e}`
+        : `https://vidlink.pro/movie/${id}`,
+  },
+  {
+    id: "server3",
+    name: "Server 3",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "MultiEmbed player for Anime with internal fallbacks.",
+    category: "anime",
+    tier: 1,
+    isCleanHd: false,
+    noWatermark: false,
+    multiAudio: false,
+    buildUrl: (id, isTv, s, e) =>
+      isTv
+        ? `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`
+        : `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+  },
+  {
+    id: "server4",
+    name: "Server 4",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Auto-fallback multi-stream player.",
+    category: "anime",
     tier: 1,
     isCleanHd: true,
     noWatermark: true,
@@ -44,73 +269,28 @@ export const STREAM_SERVERS: StreamServerDefinition[] = [
         : `https://player.autoembed.cc/embed/movie/${id}`,
   },
   {
-    id: "server3",
-    name: "EmbedSU (Multi-CDN Cluster)",
-    badge: "💎 Multi-Source · Clean",
-    quality: "1080p Ultra-HD",
-    description: "Aggregated high-capacity streaming cluster with automatic clean source selection.",
-    tier: 1,
-    isCleanHd: true,
-    noWatermark: true,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://embed.su/embed/tv/${id}/${s}/${e}`
-        : `https://embed.su/embed/movie/${id}`,
-  },
-  {
-    id: "server4",
-    name: "VidSrc ICU (Fast Edge Node)",
-    badge: "Direct Edge HD",
-    quality: "1080p Full-HD",
-    description: "High-uptime resilient edge node optimized for full-length movies and TV seasons.",
-    tier: 1,
-    isCleanHd: true,
-    noWatermark: true,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://vidsrc.icu/embed/tv/${id}/${s}/${e}`
-        : `https://vidsrc.icu/embed/movie/${id}`,
-  },
-
-  // ─── TIER 2: Reliable Global Fallback Mirrors ───
-  {
     id: "server5",
-    name: "VidSrc XYZ (Global Stable)",
-    badge: "Stable Global",
+    name: "Server 5",
+    badge: "1080p",
     quality: "1080p Full-HD",
-    description: "High-uptime established mirror with multi-source fallback.",
+    description: "Fast global CDN anime stream.",
+    category: "anime",
     tier: 2,
-    isCleanHd: false,
-    noWatermark: false,
+    isCleanHd: true,
+    noWatermark: true,
     multiAudio: false,
     buildUrl: (id, isTv, s, e) =>
       isTv
-        ? `https://vidsrc.xyz/embed/tv/${id}/${s}/${e}`
-        : `https://vidsrc.xyz/embed/movie/${id}`,
+        ? `https://vidsrc.net/embed/tv/${id}/${s}/${e}`
+        : `https://vidsrc.net/embed/movie/${id}`,
   },
   {
     id: "server6",
-    name: "SmashyStream (Direct Engine)",
-    badge: "Direct Engine",
-    quality: "1080p HD",
-    description: "Direct stream processor with adaptive bitrate switching.",
-    tier: 2,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://embed.smashystream.com/playere.php?tmdb=${id}&season=${s}&episode=${e}`
-        : `https://embed.smashystream.com/playere.php?tmdb=${id}`,
-  },
-  {
-    id: "server7",
-    name: "2Embed CC (Redundant Mirror)",
-    badge: "Redundant",
-    quality: "1080p HD",
-    description: "Global fallback mirror with zero throttling.",
+    name: "Server 6",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "High-uptime established anime mirror.",
+    category: "anime",
     tier: 2,
     isCleanHd: false,
     noWatermark: false,
@@ -121,110 +301,30 @@ export const STREAM_SERVERS: StreamServerDefinition[] = [
         : `https://www.2embed.cc/embed/${id}`,
   },
   {
-    id: "server8",
-    name: "RiveStream (Minimal Stream)",
-    badge: "Modern Minimal",
-    quality: "1080p HD",
-    description: "Clean modern embed stream with fast initialization.",
+    id: "server7",
+    name: "Server 7",
+    badge: "1080p",
+    quality: "1080p Full-HD",
+    description: "Dedicated high-bandwidth anime cluster.",
+    category: "anime",
     tier: 2,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://rivestream.live/embed?type=series&id=${id}&season=${s}&episode=${e}`
-        : `https://rivestream.live/embed?type=movie&id=${id}`,
-  },
-  {
-    id: "server9",
-    name: "VidSrc ME (Direct Mirror)",
-    badge: "Direct Mirror",
-    quality: "1080p Full-HD",
-    description: "Reliable direct mirror node with TMDB stream indexing.",
-    tier: 2,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://vidsrc.me/embed/tv?tmdb=${id}&season=${s}&episode=${e}`
-        : `https://vidsrc.me/embed/movie?tmdb=${id}`,
-  },
-
-  // ─── TIER 3: Secondary Resilient Edge Nodes ───
-  {
-    id: "server10",
-    name: "111Movies (High Speed)",
-    badge: "High Speed",
-    quality: "1080p HD",
-    description: "Direct cloud stream with instant initialization.",
-    tier: 3,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://111movies.com/tv/${id}/${s}/${e}`
-        : `https://111movies.com/movie/${id}`,
-  },
-  {
-    id: "server11",
-    name: "VidSrc Pro (Pro Cluster)",
-    badge: "Pro Cluster",
-    quality: "1080p Full-HD",
-    description: "Dedicated high-bandwidth cluster with global CDN cache.",
-    tier: 3,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://vidsrc.pro/embed/tv/${id}/${s}/${e}`
-        : `https://vidsrc.pro/embed/movie/${id}`,
-  },
-  {
-    id: "server12",
-    name: "VidSrc PM (Edge CDN)",
-    badge: "Primary Edge",
-    quality: "1080p Full-HD",
-    description: "Edge CDN streaming mirror.",
-    tier: 3,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://vidsrc.pm/embed/tv/${id}/${s}/${e}`
-        : `https://vidsrc.pm/embed/movie/${id}`,
-  },
-  {
-    id: "server13",
-    name: "NontonGo (Asia-Pacific)",
-    badge: "Asia-Pacific",
-    quality: "1080p HD",
-    description: "Dedicated high-bandwidth edge node in Asia-Pacific region.",
-    tier: 3,
-    isCleanHd: false,
-    noWatermark: false,
-    multiAudio: false,
-    buildUrl: (id, isTv, s, e) =>
-      isTv
-        ? `https://www.nontongo.win/embed/tv/${id}/${s}/${e}`
-        : `https://www.nontongo.win/embed/movie/${id}`,
-  },
-  {
-    id: "server14",
-    name: "VidSrc RIP (4K Multi-Audio)",
-    badge: "Clean 4K · Multi-Audio",
-    quality: "4K / 1080p Ultra-HD",
-    description: "Multi-audio track direct cloud stream with soft subtitles.",
-    tier: 3,
     isCleanHd: true,
     noWatermark: true,
     multiAudio: true,
     buildUrl: (id, isTv, s, e) =>
       isTv
-        ? `https://vidsrc.rip/embed/tv/${id}/${s}/${e}`
-        : `https://vidsrc.rip/embed/movie/${id}`,
+        ? `https://rivestream.live/embed?type=series&id=${id}&season=${s}&episode=${e}`
+        : `https://rivestream.live/embed?type=movie&id=${id}`,
   },
 ];
+
+// Helper to get dedicated lightweight server pool by content type
+export function getStreamingServersFor(type?: string): StreamServerDefinition[] {
+  const norm = (type || "").toLowerCase();
+  if (norm === "anime") return ANIME_SERVERS;
+  if (norm === "tv" || norm === "series" || norm === "show") return TV_SERVERS;
+  return MOVIE_SERVERS;
+}
+
+// Default export alias for backward compatibility
+export const STREAM_SERVERS: StreamServerDefinition[] = MOVIE_SERVERS;

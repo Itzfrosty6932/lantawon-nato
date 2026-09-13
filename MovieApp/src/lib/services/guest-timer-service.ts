@@ -1,19 +1,24 @@
 /**
  * DEVICE-BASED GUEST TRIAL TIMER SERVICE
  *
- * Manages a strict 30-minute (1800 seconds) trial limit per device. The
+ * Manages a strict 12-hour (43,200 seconds) trial limit per device. The
  * authoritative state lives SERVER-SIDE in Supabase (`guest_devices` table,
- * keyed by device fingerprint) — see guest-device-service.ts. The localStorage
- * timer below is a display/offline cache: it drains on wall-clock time and is
- * reconciled against the server whenever the app loads or the sticky timer
- * mounts. Once the server marks a device expired, no client action can reset it.
+ * keyed by device fingerprint) — see guest-device-service.ts.
+ *
+ * Key Design Invariants:
+ * 1. Timer MUST NOT reset or jump back up to 12:00:00 on page refresh/re-mount.
+ * 2. Countdown ONLY decreases while playback is active (`_playbackActive === true`)
+ *    and browser tab is focused (`!document.hidden`).
+ * 3. Pausing the video, switching tabs, or navigating away immediately pauses the timer.
+ * 4. Local consumption is persistently stored and synced to the server via heartbeats.
+ * 5. When syncing with server, the lower remaining time always wins (monotonic decrement).
  */
 
 import { lookupGuestDevice, heartbeatGuestDevice } from "@/lib/services/guest-device-service";
 
 const STORAGE_KEY = "lantawon_guest_timer_v1";
 const EXPIRED_KEY = "lantawon_guest_timer_expired";
-export const GUEST_TRIAL_DURATION_SECONDS = 30 * 60; // 30 minutes (1800 seconds)
+export const GUEST_TRIAL_DURATION_SECONDS = 12 * 60 * 60; // 12 hours (43,200 seconds)
 
 export interface GuestTimerData {
   totalSeconds: number;
@@ -23,8 +28,36 @@ export interface GuestTimerData {
 }
 
 export class GuestTimerService {
+  private static _lastDeviceId: string | null = null;
+  private static _pendingUnreportedSeconds = 0;
+  private static _playbackActive = false;
+  private static _isSyncing = false;
+  private static _timerInterval: ReturnType<typeof setInterval> | null = null;
+  private static _heartbeatAccumulator = 0;
+  private static _listenersInitialized = false;
+
+  private static _initGlobalListeners() {
+    if (this._listenersInitialized || typeof window === "undefined") return;
+    this._listenersInitialized = true;
+
+    // Pause ticking when tab loses focus or is hidden
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        this._stopTimer();
+      } else if (this._playbackActive) {
+        this._startTimer();
+      }
+    });
+
+    const handleUnload = () => {
+      this.flushHeartbeat();
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+  }
+
   /**
-   * Reads or initializes the device guest session timer.
+   * Reads or initializes the device guest session timer from localStorage.
    */
   static getTimerData(): GuestTimerData {
     if (typeof window === "undefined") {
@@ -59,6 +92,15 @@ export class GuestTimerService {
             isExpired: true,
           };
         }
+
+        // Seamlessly upgrade legacy 30m timers to 12 hours
+        if (parsed.totalSeconds < GUEST_TRIAL_DURATION_SECONDS && !parsed.isExpired) {
+          const used = Math.max(0, parsed.totalSeconds - parsed.remainingSeconds);
+          parsed.totalSeconds = GUEST_TRIAL_DURATION_SECONDS;
+          parsed.remainingSeconds = Math.max(0, GUEST_TRIAL_DURATION_SECONDS - used);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        }
+
         return parsed;
       }
     } catch {}
@@ -71,12 +113,14 @@ export class GuestTimerService {
       isExpired: false,
     };
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+    } catch {}
     return initialData;
   }
 
   /**
-   * Checks if this device has already exhausted its 30-minute guest trial.
+   * Checks if this device has already exhausted its guest trial.
    */
   static isGuestExpired(): boolean {
     if (typeof window === "undefined") return false;
@@ -88,57 +132,175 @@ export class GuestTimerService {
 
   /**
    * Reconcile the local timer with the server's authoritative state.
-   * Call on app load / sticky-timer mount. Server always wins:
-   * - server expired → local marked expired (no reset possible)
-   * - server remaining < local → local clamped down
-   * - offline/unreachable → local timer keeps draining as fallback
+   * MONOTONIC RULE: Timer never jumps up. If local has drained more than server,
+   * local time is preserved and the elapsed delta is flushed to server immediately.
    */
   static async syncWithServer(): Promise<{ isExpired: boolean; remainingSeconds: number } | null> {
-    const server = await lookupGuestDevice();
-    if (!server) return null; // offline: keep local accounting
+    if (this._isSyncing) return null;
+    this._isSyncing = true;
 
-    this.setDeviceId(server.deviceId);
+    try {
+      const server = await lookupGuestDevice();
+      if (!server) {
+        // Offline / network fallback: trust local timer
+        const local = this.getTimerData();
+        return { isExpired: local.isExpired, remainingSeconds: local.remainingSeconds };
+      }
 
-    if (server.isExpired) {
-      this.markExpired();
-      return { isExpired: true, remainingSeconds: 0 };
+      this.setDeviceId(server.deviceId);
+
+      if (server.isExpired) {
+        this.markExpired();
+        return { isExpired: true, remainingSeconds: 0 };
+      }
+
+      const local = this.getTimerData();
+
+      // If local already expired or has zero remaining, propagate to server
+      if (local.isExpired || local.remainingSeconds <= 0) {
+        this.markExpired();
+        await this.heartbeat(server.remainingSeconds);
+        return { isExpired: true, remainingSeconds: 0 };
+      }
+
+      // If local spent MORE time than server currently knows (e.g. page refreshed during playback):
+      // Keep local timer and tell server about the difference!
+      if (local.remainingSeconds < server.remainingSeconds) {
+        const delta = server.remainingSeconds - local.remainingSeconds;
+        // Sync delta to server so DB records the spent seconds
+        this.heartbeat(delta);
+        return { isExpired: false, remainingSeconds: local.remainingSeconds };
+      }
+
+      // If server recorded more usage than local (e.g. other tab / previous session):
+      // Clamp local timer down to server's lower value
+      if (server.remainingSeconds < local.remainingSeconds) {
+        this.updateRemainingSeconds(server.remainingSeconds);
+        return { isExpired: false, remainingSeconds: server.remainingSeconds };
+      }
+
+      return { isExpired: false, remainingSeconds: local.remainingSeconds };
+    } finally {
+      this._isSyncing = false;
     }
-
-    // Server is authoritative: if server says NOT expired (e.g. database rows reset), clear local expired marker
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(EXPIRED_KEY);
-    }
-    this.updateRemainingSeconds(server.remainingSeconds);
-
-    return { isExpired: false, remainingSeconds: server.remainingSeconds };
   }
 
   /**
    * Fire-and-forget heartbeat: reports elapsed seconds to the server and
-   * applies any clamp the server returns. Called periodically by the UI timer.
+   * applies any clamp the server returns.
    */
   static async heartbeat(secondsElapsed: number): Promise<void> {
+    if (secondsElapsed <= 0) return;
     try {
-      // deviceId comes from the last syncWithServer() lookup
-      if (!this._lastDeviceId) return;
+      if (!this._lastDeviceId) {
+        // Queue pending seconds if deviceId is not yet loaded
+        this._pendingUnreportedSeconds += secondsElapsed;
+        return;
+      }
 
-      const result = await heartbeatGuestDevice(this._lastDeviceId, secondsElapsed);
-      if (result?.isExpired) {
-        this.markExpired();
-      } else if (result && typeof window !== "undefined") {
-        const local = this.getTimerData();
-        if (result.remainingSeconds < local.remainingSeconds) {
-          this.updateRemainingSeconds(result.remainingSeconds);
+      const toSend = secondsElapsed + this._pendingUnreportedSeconds;
+      this._pendingUnreportedSeconds = 0;
+
+      // Send in chunks of max 60s as enforced by DB function clamp
+      let remainingToSend = toSend;
+      while (remainingToSend > 0) {
+        const chunk = Math.min(60, remainingToSend);
+        remainingToSend -= chunk;
+        const result = await heartbeatGuestDevice(this._lastDeviceId, chunk);
+        if (result?.isExpired) {
+          this.markExpired();
+          break;
+        } else if (result && typeof window !== "undefined") {
+          const local = this.getTimerData();
+          if (result.remainingSeconds < local.remainingSeconds) {
+            this.updateRemainingSeconds(result.remainingSeconds);
+          }
         }
       }
     } catch {
-      // never break playback on heartbeat failure
+      // never break playback on network hiccups
     }
   }
 
-  private static _lastDeviceId: string | null = null;
   static setDeviceId(id: string | null): void {
     this._lastDeviceId = id;
+    if (id && this._pendingUnreportedSeconds > 0) {
+      const pending = this._pendingUnreportedSeconds;
+      this._pendingUnreportedSeconds = 0;
+      this.heartbeat(pending);
+    }
+  }
+
+  /**
+   * Whether a stream is actively playing on screen right now.
+   */
+  static isPlaybackActive(): boolean {
+    return this._playbackActive;
+  }
+
+  /**
+   * Set playback active state. Ticker only runs when true AND tab is visible.
+   */
+  static setPlaybackActive(active: boolean): void {
+    this._initGlobalListeners();
+    if (this._playbackActive === active) return;
+    this._playbackActive = active;
+
+    if (active && typeof document !== "undefined" && !document.hidden) {
+      this._startTimer();
+    } else {
+      this._stopTimer();
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("guest_playback_changed", { detail: active })
+      );
+    }
+  }
+
+  private static _startTimer(): void {
+    if (this._timerInterval || typeof window === "undefined") return;
+
+    this._timerInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!this._playbackActive) return;
+
+      const current = this.getTimerData().remainingSeconds;
+      const next = current - 1;
+      this._heartbeatAccumulator += 1;
+
+      if (next <= 0) {
+        this._stopTimer();
+        this.markExpired();
+        return;
+      }
+
+      this.updateRemainingSeconds(next);
+
+      // Flush heartbeat every 5s of active playback
+      if (this._heartbeatAccumulator >= 5) {
+        const toFlush = this._heartbeatAccumulator;
+        this._heartbeatAccumulator = 0;
+        this.heartbeat(toFlush);
+      }
+    }, 1000);
+  }
+
+  private static _stopTimer(): void {
+    if (this._timerInterval) {
+      clearInterval(this._timerInterval);
+      this._timerInterval = null;
+    }
+    this.flushHeartbeat();
+  }
+
+  static flushHeartbeat(): void {
+    if (this._heartbeatAccumulator > 0) {
+      const toFlush = this._heartbeatAccumulator;
+      this._heartbeatAccumulator = 0;
+      this.heartbeat(toFlush);
+    }
   }
 
   /**
@@ -146,21 +308,23 @@ export class GuestTimerService {
    */
   static markExpired(): void {
     if (typeof window === "undefined") return;
-    localStorage.setItem(EXPIRED_KEY, "true");
-    const data = {
-      totalSeconds: GUEST_TRIAL_DURATION_SECONDS,
-      remainingSeconds: 0,
-      lastUpdated: Date.now(),
-      isExpired: true,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    window.dispatchEvent(new CustomEvent("guest_timer_expired"));
+    try {
+      this._stopTimer();
+      localStorage.setItem(EXPIRED_KEY, "true");
+      const data: GuestTimerData = {
+        totalSeconds: GUEST_TRIAL_DURATION_SECONDS,
+        remainingSeconds: 0,
+        lastUpdated: Date.now(),
+        isExpired: true,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      window.dispatchEvent(new CustomEvent("guest_timer_expired"));
+      window.dispatchEvent(new CustomEvent("guest_timer_tick", { detail: 0 }));
+    } catch {}
   }
 
   /**
-   * Persists the remaining countdown. `lastUpdated` is refreshed on every
-   * write so getTimerData() can account for wall-clock time elapsed between
-   * writes (closed tabs, sleeping device, multiple open tabs).
+   * Persists the remaining countdown. Monotonically preserves progress.
    */
   static updateRemainingSeconds(seconds: number): GuestTimerData {
     if (typeof window === "undefined") {
@@ -189,12 +353,15 @@ export class GuestTimerService {
       isExpired: false,
     };
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      window.dispatchEvent(new CustomEvent("guest_timer_tick", { detail: seconds }));
+    } catch {}
     return data;
   }
 
   /**
-   * Resets the guest trial timer back to 30:00 (for dev mode or user re-entry).
+   * Resets the guest trial timer back to 12:00:00 (for testing/admin use).
    */
   static resetGuestTimer(): GuestTimerData {
     if (typeof window === "undefined") {
@@ -206,24 +373,40 @@ export class GuestTimerService {
       };
     }
 
-    localStorage.removeItem(EXPIRED_KEY);
-    const initialData: GuestTimerData = {
-      totalSeconds: GUEST_TRIAL_DURATION_SECONDS,
-      remainingSeconds: GUEST_TRIAL_DURATION_SECONDS,
-      lastUpdated: Date.now(),
-      isExpired: false,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
-    window.dispatchEvent(new CustomEvent("guest_timer_reset"));
-    return initialData;
+    try {
+      this._stopTimer();
+      localStorage.removeItem(EXPIRED_KEY);
+      const initialData: GuestTimerData = {
+        totalSeconds: GUEST_TRIAL_DURATION_SECONDS,
+        remainingSeconds: GUEST_TRIAL_DURATION_SECONDS,
+        lastUpdated: Date.now(),
+        isExpired: false,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+      window.dispatchEvent(new CustomEvent("guest_timer_reset"));
+      window.dispatchEvent(new CustomEvent("guest_timer_tick", { detail: GUEST_TRIAL_DURATION_SECONDS }));
+      return initialData;
+    } catch {
+      return {
+        totalSeconds: GUEST_TRIAL_DURATION_SECONDS,
+        remainingSeconds: GUEST_TRIAL_DURATION_SECONDS,
+        lastUpdated: Date.now(),
+        isExpired: false,
+      };
+    }
   }
 
   /**
-   * Formats seconds into MM:SS display string.
+   * Formats seconds into H:MM:SS or MM:SS display string.
    */
   static formatTime(seconds: number): string {
-    const mins = Math.floor(Math.max(0, seconds) / 60);
-    const secs = Math.max(0, seconds) % 60;
+    const total = Math.max(0, seconds);
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hrs > 0) {
+      return `${hrs}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
 }

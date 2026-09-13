@@ -174,8 +174,9 @@ export function ServerPickerDrawer({
               };
               return getWeight(a.id) - getWeight(b.id);
             })
-            .map((server, idx) => {
+            .map((server) => {
             const isActive = activeServer === server.id;
+            const serverNumber = STREAM_SERVERS.findIndex((s) => s.id === server.id) + 1;
             const health = serverHealth[server.id];
             const isOffline = health?.status === "offline";
             const isProbingThis = health?.status === "probing" || isProbing;
@@ -200,11 +201,11 @@ export function ServerPickerDrawer({
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className={`text-[10px] font-mono shrink-0 ${isActive ? "text-zinc-600" : "text-zinc-500"}`}>
-                    #{idx + 1}
+                    #{serverNumber}
                   </span>
                   <div className="text-left min-w-0">
                     <div className="truncate font-bold flex items-center gap-1.5">
-                      <span className="truncate">Server {idx + 1}</span>
+                      <span className="truncate">Server {serverNumber}</span>
                       {server.isCleanHd && (
                         <span className={`text-[9px] font-mono font-bold shrink-0 ${
                           isActive ? "text-emerald-900" : "text-emerald-400"

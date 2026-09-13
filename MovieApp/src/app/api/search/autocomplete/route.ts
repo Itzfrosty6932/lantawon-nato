@@ -69,21 +69,14 @@ export async function GET(req: NextRequest) {
 
     const limitedSuggestions = suggestions.slice(0, 10);
 
-    return NextResponse.json(
-      {
-        suggestions: limitedSuggestions,
-        movies: media.filter((m: any) => m.media_type === "movie"),
-        series: media.filter((m: any) => m.media_type === "tv"),
-        anime: media.filter((m: any) => m.media_type === "anime"),
-        people,
-        collections,
-      },
-      {
-        headers: {
-          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-        },
-      }
-    );
+    return NextResponse.json({
+      suggestions: limitedSuggestions,
+      movies: media.filter((m: any) => m.media_type === "movie"),
+      series: media.filter((m: any) => m.media_type === "tv"),
+      anime: media.filter((m: any) => m.media_type === "anime"),
+      people,
+      collections,
+    });
   } catch (err: any) {
     console.error("Autocomplete API Error:", err);
     return NextResponse.json({ suggestions: [] });

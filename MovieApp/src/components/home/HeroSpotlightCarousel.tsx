@@ -4,61 +4,103 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   Play,
-  ChevronLeft,
-  ChevronRight,
   Info,
-  Volume2,
-  VolumeX,
+  Star,
+  Megaphone,
+  MessageSquareQuote,
+  Sparkles,
+  Tv,
+  Clapperboard,
 } from "lucide-react";
 import { TMDB_IMAGE_CONFIG } from "@/lib/config/tmdb-images";
 import { SmartImage } from "@/components/ui/SmartImage";
 import { audioFX } from "@/lib/audio/audio-fx";
-import { SaveToPlaylistModal } from "@/components/playlist/SaveToPlaylistModal";
 import { getGenreName } from "@/lib/constants/taxonomy";
 import type { MediaItem } from "@/types/media";
-
-// Cache trailer keys to avoid refetching
-const TRAILER_CACHE = new Map<string, string | null>();
 
 interface HeroSpotlightCarouselProps {
   items: MediaItem[];
   onOpenTrailer: (id: string | number, type: string, title: string, year: string) => void;
 }
 
+const SEQUENTIAL_BADGES = [
+  {
+    icon: MessageSquareQuote,
+    label: "People are talking about",
+    gradient: "from-pink-500 to-indigo-500",
+  },
+  {
+    icon: Sparkles,
+    label: "Top 1 Movie",
+    gradient: "from-amber-500 to-red-500",
+  },
+  {
+    icon: Tv,
+    label: "Top 1 TV Show",
+    gradient: "from-blue-500 to-cyan-500",
+  },
+  {
+    icon: Clapperboard,
+    label: "Top 1 Anime",
+    gradient: "from-purple-500 to-pink-500",
+  },
+  {
+    icon: Megaphone,
+    label: "Recently added",
+    gradient: "from-[#E50914] to-pink-500",
+  },
+];
+
 export function HeroSpotlightCarousel({
   items,
+  onOpenTrailer,
 }: HeroSpotlightCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
-  const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
-  const [isTrailerPlaying, setIsTrailerPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const trailerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const spotlightList = (items || []).filter(
-    (item) =>
-      Boolean(item.backdrop_path || item.poster_path) &&
-      Boolean(item.title || item.name) &&
-      !item.title?.toLowerCase().includes("tagesschau") &&
-      !item.name?.toLowerCase().includes("tagesschau")
-  );
+  // Drag / Swipe State
+  const [dragStartX, setDragStartX] = useState<number | null>(null);
+  const [dragDistance, setDragDistance] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Exactly 5 items for the 5 dash lines
+  const spotlightList = (items || [])
+    .filter(
+      (item) =>
+        Boolean(item.backdrop_path || item.poster_path) &&
+        Boolean(item.title || item.name) &&
+        !item.title?.toLowerCase().includes("tagesschau") &&
+        !item.name?.toLowerCase().includes("tagesschau")
+    )
+    .slice(0, 5);
 
   const current = spotlightList[activeIndex] || spotlightList[0];
   const mediaType = current?.media_type || (current?.title ? "movie" : "tv");
-  const year = current?.release_date?.split("-")[0] || current?.first_air_date?.split("-")[0] || "";
+  const year =
+    current?.release_date?.split("-")[0] ||
+    current?.first_air_date?.split("-")[0] ||
+    "2026";
   const displayTitle = current?.title || current?.name || "";
-  const genreName = current?.genre_ids && current.genre_ids.length > 0
-    ? getGenreName(current.genre_ids[0])
-    : "Cinema";
+  const rating =
+    typeof current?.vote_average === "number" && current.vote_average > 0
+      ? current.vote_average.toFixed(1)
+      : "8.8";
+  const genreName =
+    current?.genre_ids && current.genre_ids.length > 0
+      ? getGenreName(current.genre_ids[0])
+      : "Action & Drama";
+
+  const isAnime =
+    current?.genre_ids?.includes(16) ||
+    (current as any)?.origin_country?.includes("JP") ||
+    (current as any)?.media_type === "anime";
 
   const backdropUrl = current?.backdrop_path
     ? `${TMDB_IMAGE_CONFIG.BACKDROP_BASE}${current.backdrop_path}`
     : current?.poster_path
-      ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${current.poster_path}`
-      : TMDB_IMAGE_CONFIG.FALLBACK_BACKDROP;
+    ? `${TMDB_IMAGE_CONFIG.POSTER_BASE}${current.poster_path}`
+    : TMDB_IMAGE_CONFIG.FALLBACK_BACKDROP;
 
   const handleNext = useCallback(() => {
     if (spotlightList.length <= 1) return;
@@ -72,231 +114,268 @@ export function HeroSpotlightCarousel({
     setActiveIndex((prev) => (prev - 1 + spotlightList.length) % spotlightList.length);
   }, [spotlightList.length]);
 
-  // Load trailer for current spotlight item after short idle delay (1.5s)
-  useEffect(() => {
-    setIsTrailerPlaying(false);
-    setActiveTrailerKey(null);
+  // Touch Swipe handlers
+  const onTouchStart = (e: React.TouchEvent) => {
+    setDragStartX(e.touches[0].clientX);
+    setDragDistance(0);
+    setIsDragging(true);
+    setIsPaused(true);
+  };
 
-    if (!current) return;
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (dragStartX === null) return;
+    const diff = e.touches[0].clientX - dragStartX;
+    setDragDistance(diff);
+  };
 
-    const cacheKey = `${mediaType}_${current.id}`;
-    if (trailerTimerRef.current) {
-      clearTimeout(trailerTimerRef.current);
+  const onTouchEnd = () => {
+    if (dragStartX !== null) {
+      if (dragDistance < -40) {
+        handleNext();
+      } else if (dragDistance > 40) {
+        handlePrev();
+      }
     }
+    setDragStartX(null);
+    setDragDistance(0);
+    setIsDragging(false);
+    setIsPaused(false);
+  };
 
-    trailerTimerRef.current = setTimeout(async () => {
-      if (TRAILER_CACHE.has(cacheKey)) {
-        const cached = TRAILER_CACHE.get(cacheKey);
-        if (cached) {
-          setActiveTrailerKey(cached);
-          setIsTrailerPlaying(true);
-        }
-        return;
+  // Mouse Drag handlers
+  const onMouseDown = (e: React.MouseEvent) => {
+    // Only drag when clicking background or canvas (not buttons/links)
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("a")) return;
+
+    setDragStartX(e.clientX);
+    setDragDistance(0);
+    setIsDragging(true);
+    setIsPaused(true);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (dragStartX === null || !isDragging) return;
+    const diff = e.clientX - dragStartX;
+    setDragDistance(diff);
+  };
+
+  const onMouseUp = () => {
+    if (dragStartX !== null && isDragging) {
+      if (dragDistance < -40) {
+        handleNext();
+      } else if (dragDistance > 40) {
+        handlePrev();
       }
+    }
+    setDragStartX(null);
+    setDragDistance(0);
+    setIsDragging(false);
+    setIsPaused(false);
+  };
 
-      try {
-        const res = await fetch(`/api/trailer?id=${current.id}&type=${mediaType}`);
-        if (res.ok) {
-          const data = await res.json();
-          const key = data.trailerKey || null;
-          TRAILER_CACHE.set(cacheKey, key);
-          if (key) {
-            setActiveTrailerKey(key);
-            setIsTrailerPlaying(true);
-          }
-        }
-      } catch {
-        TRAILER_CACHE.set(cacheKey, null);
-      }
-    }, 1500);
-
-    return () => {
-      if (trailerTimerRef.current) {
-        clearTimeout(trailerTimerRef.current);
-      }
-    };
-  }, [current, mediaType]);
-
-  // Auto-advance spotlight every 18s (or when trailer has played)
+  // Auto-advance spotlight every 8 seconds (clean slide without video autoplay)
   useEffect(() => {
-    if (spotlightList.length <= 1 || isPaused) return;
+    if (spotlightList.length <= 1 || isPaused || isDragging) return;
 
     timerRef.current = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % spotlightList.length);
-    }, isTrailerPlaying ? 22000 : 9000);
+    }, 8000);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [spotlightList.length, isPaused, isTrailerPlaying]);
+  }, [spotlightList.length, isPaused, isDragging]);
 
-  if (spotlightList.length === 0) return null;
+  if (spotlightList.length === 0 || !current) return null;
+
+  const currentBadge = SEQUENTIAL_BADGES[activeIndex % SEQUENTIAL_BADGES.length];
+  const BadgeIcon = currentBadge.icon;
 
   return (
-    <>
+    <div
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        if (isDragging) onMouseUp();
+      }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      className={`relative w-full h-[88svh] sm:h-[90svh] min-h-[560px] sm:min-h-[600px] max-h-[880px] flex flex-col justify-end pb-12 sm:pb-20 lg:pb-24 px-4 sm:px-8 lg:px-12 overflow-hidden select-none group transition-all duration-300 ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+    >
+      {/* ─── High-Res Cinematic Backdrop ─── */}
       <div
-        onMouseEnter={() => setIsPaused(true)}
-        onMouseLeave={() => setIsPaused(false)}
-        className="relative w-full h-[92svh] sm:h-[100svh] min-h-[560px] sm:min-h-[620px] max-h-[900px] flex flex-col justify-end pb-16 sm:pb-28 px-4 sm:px-6 lg:px-10 overflow-hidden select-none group pt-0"
+        className="absolute inset-0 z-0 h-full w-full pointer-events-none transition-transform duration-500 ease-out"
+        style={{
+          transform: isDragging ? `translateX(${dragDistance * 0.4}px)` : "translateX(0px)",
+        }}
       >
-        {/* ─── Backdrop Image or Seamless Frameless Trailer ─── */}
-        {isTrailerPlaying && activeTrailerKey ? (
-          <div className="absolute inset-0 z-0 overflow-hidden bg-black animate-in fade-in duration-700 pointer-events-none select-none flex items-center justify-center">
-            {/* Scaled & Cropped Iframe to completely crop out YouTube title, controls, progress bar, & overlays */}
-            <iframe
-              src={`https://www.youtube-nocookie.com/embed/${activeTrailerKey}?autoplay=1&mute=${
-                isMuted ? "1" : "0"
-              }&controls=0&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&disablekb=1&fs=0&playsinline=1&enablejsapi=0&loop=1&playlist=${activeTrailerKey}`}
-              title={`${displayTitle} Trailer`}
-              className="absolute w-[320%] h-[320%] sm:w-[180%] sm:h-[180%] object-cover pointer-events-none"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            />
-            <div className="absolute inset-0 z-10 pointer-events-none" />
-          </div>
-        ) : (
-          <SmartImage
-            key={current.id}
-            src={backdropUrl}
-            alt={displayTitle}
-            fallbackType="backdrop"
-            containerClassName="absolute inset-0 z-0 h-full w-full"
-            className="h-full w-full object-cover transition-transform duration-[3s] group-hover:scale-105"
-          />
-        )}
+        <SmartImage
+          key={current.id}
+          src={backdropUrl}
+          alt={displayTitle}
+          fallbackType="backdrop"
+          containerClassName="w-full h-full"
+          className="h-full w-full object-cover object-center transition-all duration-700"
+        />
+      </div>
 
-        {/* ─── Cinematic Vignette Gradients (Darken edges & mask iframe borders) ─── */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] via-[#0D0D0D]/50 to-transparent z-10 pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent z-10 pointer-events-none" />
-        <div className="absolute top-0 inset-x-0 h-16 sm:h-24 bg-gradient-to-b from-black/50 to-transparent z-10 pointer-events-none" />
+      {/* ─── Seamless Cinematic Gradient Overlays ─── */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-transparent z-10 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0c]/90 via-[#0a0a0c]/40 to-transparent z-10 pointer-events-none" />
+      <div className="absolute top-0 inset-x-0 h-24 sm:h-32 bg-gradient-to-b from-black/60 to-transparent z-10 pointer-events-none" />
 
-        {/* ─── Left & Right Navigation Arrows (Subtle by default, grows on hover) ─── */}
-        <button
-          type="button"
-          onClick={handlePrev}
-          aria-label="Previous Slide"
-          className="absolute left-2 sm:left-4 lg:left-6 top-1/2 -translate-y-1/2 z-30 p-2 sm:p-3 text-white/70 hover:text-white transition-all duration-300 hover:scale-125 focus:outline-none cursor-pointer drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
-        >
-          <ChevronLeft className="h-8 w-8 sm:h-12 sm:w-12 stroke-[2.5]" />
-        </button>
+      {/* ─── Hero Content Info (Left Side) ─── */}
+      <div className="relative z-20 max-w-2xl flex flex-col gap-2.5 sm:gap-3.5 items-start pointer-events-auto pb-4 sm:pb-0">
+        {/* Mobile Top Badge Tag */}
+        <div className="inline-flex sm:hidden items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 border border-white/15 backdrop-blur-xl text-[11px] font-semibold text-white shadow-lg">
+          <span className={`flex items-center justify-center h-3.5 w-3.5 rounded-full bg-gradient-to-tr ${currentBadge.gradient} text-white shrink-0`}>
+            <BadgeIcon className="h-2 w-2" />
+          </span>
+          <span>{currentBadge.label}</span>
+        </div>
 
-        <button
-          type="button"
-          onClick={handleNext}
-          aria-label="Next Slide"
-          className="absolute right-2 sm:right-4 lg:right-6 top-1/2 -translate-y-1/2 z-30 p-2 sm:p-3 text-white/70 hover:text-white transition-all duration-300 hover:scale-125 focus:outline-none cursor-pointer drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
-        >
-          <ChevronRight className="h-8 w-8 sm:h-12 sm:w-12 stroke-[2.5]" />
-        </button>
-
-        {/* ─── Hero Content Info ─── */}
-        <div className="relative z-20 max-w-2xl flex flex-col gap-3 items-start pl-2 sm:pl-4 pr-10 sm:pr-14">
-          {/* Title */}
-          <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold text-[#FFF8E7] tracking-tight leading-tight font-heading drop-shadow-2xl line-clamp-2">
+        {/* Title */}
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight sm:leading-none drop-shadow-2xl">
             {displayTitle}
           </h1>
+        </div>
 
-          {/* Metadata Badges */}
-          <div className="flex items-center gap-2.5 text-xs text-white font-medium flex-wrap">
-            <span className="text-emerald-400 font-bold">New</span>
-            <span className="text-zinc-300 font-semibold">{year}</span>
-            <span className="px-1.5 py-0.2 border border-zinc-500 rounded text-[10px] font-mono text-zinc-300">
-              18+
-            </span>
-            <span className="text-zinc-300">
-              {mediaType === "tv" ? "Season Series" : "Cinema Feature"}
-            </span>
-            <span className="px-1.5 py-0.2 border border-zinc-500 rounded text-[10px] font-mono text-zinc-300">
-              4K UHD
-            </span>
-            <span className="text-zinc-500 font-normal">|</span>
-            <span className="text-zinc-300 font-medium">{genreName}</span>
+        {/* Metadata Row (★ 9.0 • 2026 • Movie • Action • [ R ]) */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs sm:text-sm font-semibold text-zinc-300 flex-wrap">
+          {/* Red Star + Rating */}
+          <span className="flex items-center gap-1 text-[#E50914] font-black">
+            <Star className="h-3.5 w-3.5 fill-current" />
+            <span>{rating}</span>
+          </span>
+
+          <span className="text-zinc-500 font-bold">&bull;</span>
+
+          {/* Release Year */}
+          <span>{year}</span>
+
+          <span className="text-zinc-500 font-bold">&bull;</span>
+
+          {/* Media Type */}
+          <span>
+            {isAnime ? "Anime" : mediaType === "tv" ? "TV Show" : "Movie"}
+          </span>
+
+          <span className="text-zinc-500 font-bold">&bull;</span>
+
+          {/* Genre */}
+          <span>{genreName}</span>
+
+          <span className="text-zinc-500 font-bold">&bull;</span>
+
+          {/* Age Rating Badge */}
+          <span className="px-1.5 py-0.5 rounded border border-zinc-600 bg-black/40 text-[10px] sm:text-xs font-mono font-bold text-zinc-200">
+            {isAnime ? "PG-13" : mediaType === "tv" ? "TV-MA" : "R"}
+          </span>
+        </div>
+
+        {/* Synopsis */}
+        <p className="text-zinc-300 text-xs sm:text-sm lg:text-[15px] max-w-xl leading-relaxed line-clamp-2 sm:line-clamp-3 font-normal drop-shadow-md">
+          {current.overview ||
+            "An extraordinary journey where danger and high-stakes choices test loyalties to the absolute limit."}
+        </p>
+
+        {/* Action Buttons & Indicator Row */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 pt-1 w-full sm:w-auto">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <Link
+              href={`/watch/${current.id}?type=${mediaType}&play=true`}
+              onClick={() => audioFX.playClick()}
+              className="px-6 sm:px-8 py-2 sm:py-2.5 rounded-full bg-white hover:bg-zinc-200 text-zinc-950 font-bold text-xs sm:text-base flex items-center gap-1.5 sm:gap-2 transition-all shadow-xl hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <Play className="h-3.5 w-3.5 sm:h-5 sm:w-5 fill-current" />
+              <span>Play</span>
+            </Link>
+
+            <Link
+              href={`/watch/${current.id}?type=${mediaType}`}
+              onClick={() => audioFX.playClick()}
+              className="px-4 sm:px-7 py-2 sm:py-2.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white font-semibold text-xs sm:text-base flex items-center gap-1.5 sm:gap-2 backdrop-blur-xl transition-all shadow-lg hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <Info className="h-3.5 w-3.5 sm:h-5 sm:w-5 text-zinc-300" />
+              <span>More info</span>
+            </Link>
           </div>
 
-          {/* Synopsis */}
-          <p className="text-zinc-200 text-xs sm:text-sm lg:text-base max-w-xl leading-relaxed line-clamp-3 font-normal drop-shadow-md">
-            {current.overview ||
-              "In a world where stakes are high and loyalties are tested, heroes rise to uncover the truth and protect what matters most."}
-          </p>
+          {/* Mobile Dash Line Indicators (Inline with buttons on mobile) */}
+          <div className="flex sm:hidden items-center gap-1.5 shrink-0">
+            {Array.from({ length: 5 }).map((_, idx) => {
+              const isActive = idx === activeIndex;
+              return (
+                <button
+                  key={`dash_mob_${idx}`}
+                  type="button"
+                  onClick={() => {
+                    audioFX.playClick();
+                    setActiveIndex(idx);
+                  }}
+                  aria-label={`Go to slide ${idx + 1}`}
+                  className={`transition-all duration-300 cursor-pointer ${
+                    isActive
+                      ? "w-6 h-1.5 rounded-full bg-white shadow-md shadow-white/50"
+                      : "w-3 h-1.5 rounded-full bg-white/30"
+                  }`}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
-          {/* CTA Buttons */}
-          <div className="flex items-center gap-3.5 mt-2 flex-wrap">
-            <Link
-              href={`/watch/${current.id}?type=${mediaType}`}
-              onClick={() => audioFX.playClick()}
-              className="bg-white hover:bg-white/90 text-black font-bold text-sm sm:text-base px-7 sm:px-9 py-2.5 rounded-xl flex items-center gap-2 transition-all hover:scale-105 shadow-xl"
-            >
-              <Play className="h-5 w-5 fill-current ml-0.5" />
-              Play
-            </Link>
+      {/* ─── Desktop Right Side Feature Badges & Exactly 5 Dash Indicators ─── */}
+      <div className="hidden sm:flex absolute right-4 sm:right-8 lg:right-12 bottom-16 sm:bottom-20 lg:bottom-24 z-20 flex-col items-end gap-4 pointer-events-auto">
+        {/* Dynamic Sequential Badge based on active slide */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/70 border border-white/15 backdrop-blur-xl text-xs font-semibold text-white shadow-xl animate-in fade-in duration-300">
+            <span className={`flex items-center justify-center h-4 w-4 rounded-full bg-gradient-to-tr ${currentBadge.gradient} text-white shrink-0`}>
+              <BadgeIcon className="h-2.5 w-2.5" />
+            </span>
+            <span>{currentBadge.label}</span>
+          </div>
 
-            {/* More Info Button */}
-            <Link
-              href={`/watch/${current.id}?type=${mediaType}`}
-              onClick={() => audioFX.playClick()}
-              className="bg-[#151515]/80 hover:bg-[#202020] text-white font-bold text-sm sm:text-base px-6 sm:px-8 py-2.5 rounded-xl flex items-center gap-2 transition-all border border-white/15 backdrop-blur-md hover:scale-105 cursor-pointer"
-            >
-              <Info className="h-5 w-5" />
-              More Info
-            </Link>
-
-            {/* Audio Toggle when Trailer is Playing */}
-            {isTrailerPlaying && (
-              <button
-                type="button"
-                onClick={() => {
-                  audioFX.playPop();
-                  setIsMuted(!isMuted);
-                }}
-                className="h-10 w-10 rounded-full bg-black/60 hover:bg-black/90 border border-white/20 text-white flex items-center justify-center transition-all hover:scale-110 shadow-lg backdrop-blur-md ml-1 cursor-pointer"
-                title={isMuted ? "Unmute Trailer" : "Mute Trailer"}
-              >
-                {isMuted ? (
-                  <VolumeX className="h-4 w-4 text-zinc-300" />
-                ) : (
-                  <Volume2 className="h-4 w-4 text-[#FFD106]" />
-                )}
-              </button>
-            )}
+          <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl text-xs font-medium text-zinc-300 shadow-md">
+            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-gradient-to-tr from-[#E50914] to-pink-500 text-white shrink-0">
+              <Megaphone className="h-2.5 w-2.5" />
+            </span>
+            <span>Spotlight</span>
           </div>
         </div>
 
-        {/* ─── Center Hero Carousel Dots Indicator (Mobile, Tablet, Desktop) ─── */}
-        <div className="absolute left-1/2 -translate-x-1/2 bottom-16 sm:bottom-24 z-30 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 shadow-2xl">
-          {spotlightList.map((item, idx) => {
+        {/* Exactly 5 Carousel Progress Dash Lines (—— — — — —) */}
+        <div className="flex items-center gap-2">
+          {Array.from({ length: 5 }).map((_, idx) => {
             const isActive = idx === activeIndex;
             return (
               <button
-                key={item.id}
+                key={`dash_${idx}`}
                 type="button"
                 onClick={() => {
                   audioFX.playClick();
                   setActiveIndex(idx);
                 }}
-                aria-label={`Slide ${idx + 1}`}
+                aria-label={`Go to slide ${idx + 1}`}
                 className={`transition-all duration-300 cursor-pointer ${
                   isActive
-                    ? "w-6 h-2 rounded-full bg-white shadow-md shadow-white/40"
-                    : "w-2 h-2 rounded-full bg-white/35 hover:bg-white/70"
+                    ? "w-8 sm:w-10 h-1.5 rounded-full bg-white shadow-md shadow-white/50"
+                    : "w-4 sm:w-5 h-1.5 rounded-full bg-white/30 hover:bg-white/60"
                 }`}
               />
             );
           })}
         </div>
       </div>
-
-      {/* Playlist Modal */}
-      <SaveToPlaylistModal
-        isOpen={isPlaylistModalOpen}
-        onClose={() => setIsPlaylistModalOpen(false)}
-        item={{
-          id: current.id,
-          title: displayTitle,
-          mediaType: mediaType as any,
-          posterPath: current.poster_path,
-          year,
-          rating: current.vote_average,
-        }}
-      />
-    </>
+    </div>
   );
 }

@@ -11,16 +11,7 @@ import {
 import { useAppModals } from "@/components/layout/AppShell";
 import { TAXONOMY, ALL_GENRES_ORDERED, getGenreName } from "@/lib/constants/taxonomy";
 import { audioFX } from "@/lib/audio/audio-fx";
-import {
-  FilterDropdown,
-  OptionItem,
-  MultiChip,
-  ActivePill,
-} from "@/components/catalog/CatalogFilterBar";
-import {
-  FacebookDateFilter,
-  MONTHS,
-} from "@/components/common/FacebookDateFilter";
+import { DiscoverFilterBar } from "@/components/discover/DiscoverFilterBar";
 import { CatalogMediaList } from "@/components/catalog/CatalogMediaList";
 import type { MediaItem } from "@/types/media";
 
@@ -31,7 +22,9 @@ export interface DomainCatalogConfig {
   subtitle: string;
   icon: React.ComponentType<{ className?: string }>;
   accentColor?: string;
-  defaultMediaType: "movie" | "tv" | "anime" | "documentary" | "all";
+  defaultMediaType: "movie" | "tv" | "anime" | "documentary" | "all" | string;
+  forcedGenre?: string;
+  forcedCountry?: string;
   showMediaTypeFilter?: boolean;
   showGenreFilter?: boolean;
   showEraFilter?: boolean;
@@ -94,32 +87,42 @@ export function DomainCatalogView({ config }: { config: DomainCatalogConfig }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const sortOptions = config.customSortOptions || DEFAULT_SORTS;
 
-  // Initialize from URL params
+  // Sync state from URL on every searchParams change.
+  //
+  // BUG FIX (2026-08-27): previously each setter was guarded with `if (param)`,
+  // so navigating `/trending?media_type=tv` → `/trending` left `mediaType`
+  // stuck on `tv`. Always call setters so absent params reset to defaults.
+  // Also accept `media_type` alias — Home/Shows shelves link with that key
+  // (see src/app/(platform)/home/page.tsx and shows/page.tsx endpoints).
   useEffect(() => {
-    const genreParam = searchParams.get("genre") || searchParams.get("with_genres");
-    if (genreParam) setGenres(genreParam.split(",").filter(Boolean));
+    const genreParam = searchParams.get("genre") || searchParams.get("with_genres") || "";
+    setGenres(genreParam ? genreParam.split(",").filter(Boolean) : []);
 
-    const typeParam = searchParams.get("type") || searchParams.get("mediaType");
-    if (typeParam) setMediaType(typeParam);
+    setMediaType(
+      searchParams.get("type") ||
+        searchParams.get("mediaType") ||
+        searchParams.get("media_type") ||
+        config.defaultMediaType
+    );
 
-    const yearParam = searchParams.get("year") || searchParams.get("primary_release_year");
-    if (yearParam) setSelectedYear(yearParam);
+    setSelectedYear(
+      searchParams.get("year") || searchParams.get("primary_release_year") || ""
+    );
 
-    const monthParam = searchParams.get("month");
-    if (monthParam) setSelectedMonth(monthParam);
+    setSelectedMonth(searchParams.get("month") || "");
 
-    const countryParam = searchParams.get("country") || searchParams.get("origin_country");
-    if (countryParam) setCountry(countryParam);
+    setCountry(
+      searchParams.get("country") || searchParams.get("origin_country") || "ALL"
+    );
 
-    const ratingParam = searchParams.get("rating") || searchParams.get("minRating");
-    if (ratingParam) setMinRating(ratingParam);
+    setMinRating(searchParams.get("rating") || searchParams.get("minRating") || "");
 
-    const statusParam = searchParams.get("status");
-    if (statusParam) setTvStatus(statusParam);
+    setTvStatus(searchParams.get("status") || "");
 
-    const sortParam = searchParams.get("sort_by") || searchParams.get("sort");
-    if (sortParam) setSortBy(sortParam);
-  }, [searchParams]);
+    setSortBy(
+      searchParams.get("sort_by") || searchParams.get("sort") || "popularity.desc"
+    );
+  }, [searchParams, config.defaultMediaType]);
 
   // Fetch catalog data
   const fetchCatalog = useCallback(
@@ -133,10 +136,23 @@ export function DomainCatalogView({ config }: { config: DomainCatalogConfig }) {
         queryParams.set("sort_by", sortBy);
 
         if (mediaType && mediaType !== "all") queryParams.set("type", mediaType);
-        if (genres.length > 0) queryParams.set("genre", genres.join(","));
+
+        if (config.forcedGenre) {
+          const combined = Array.from(new Set([config.forcedGenre, ...genres])).join(",");
+          queryParams.set("genre", combined);
+        } else if (genres.length > 0) {
+          queryParams.set("genre", genres.join(","));
+        }
+
         if (selectedYear) queryParams.set("year", selectedYear);
         if (selectedMonth) queryParams.set("month", selectedMonth);
-        if (country && country !== "ALL") queryParams.set("country", country);
+
+        if (country && country !== "ALL") {
+          queryParams.set("country", country);
+        } else if (config.forcedCountry) {
+          queryParams.set("country", config.forcedCountry);
+        }
+
         if (minRating) queryParams.set("rating", minRating);
         if (tvStatus) queryParams.set("status", tvStatus);
 
@@ -217,19 +233,6 @@ export function DomainCatalogView({ config }: { config: DomainCatalogConfig }) {
     (tvStatus ? 1 : 0) +
     (sortBy !== "popularity.desc" ? 1 : 0);
 
-  const countryLabel = TAXONOMY.regions.find((r) => r.code === country)?.label ?? "All Origins";
-  const sortLabel = sortOptions.find((s) => s.id === sortBy)?.label.split("(")[0].trim() ?? sortBy;
-
-  const monthObj = MONTHS.find((m) => m.id === selectedMonth);
-  let datePillLabel = "";
-  if (selectedYear && selectedMonth && monthObj?.short) {
-    datePillLabel = `${monthObj.short} ${selectedYear}`;
-  } else if (selectedYear) {
-    datePillLabel = selectedYear;
-  } else if (selectedMonth && monthObj?.label) {
-    datePillLabel = monthObj.label;
-  }
-
   const Icon = config.icon;
 
   return (
@@ -301,269 +304,37 @@ export function DomainCatalogView({ config }: { config: DomainCatalogConfig }) {
         </div>
       </div>
 
-      {/* ─── Filter Bar Dropdowns ─── */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {/* Media Type Selector */}
-          {config.showMediaTypeFilter && (
-            <div className="flex items-center rounded-xl bg-[#242526] border border-zinc-700/80 p-0.5 shrink-0">
-              {[
-                { id: "all", label: "All" },
-                { id: "movie", label: "Movies" },
-                { id: "tv", label: "Series" },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => {
-                    audioFX.playClick();
-                    setMediaType(t.id);
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                    mediaType === t.id
-                      ? "bg-white text-zinc-950 shadow-sm"
-                      : "text-zinc-400 hover:text-white"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Genre Button */}
-          {config.showGenreFilter !== false && (
-            <button
-              type="button"
-              onClick={() => {
-                audioFX.playClick();
-                setIsGenreOpen(!isGenreOpen);
-              }}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-bold transition-all border shrink-0 ${
-                genres.length > 0 || isGenreOpen
-                  ? "bg-white text-zinc-950 border-white shadow-sm font-black"
-                  : "bg-[#242526] text-zinc-200 border-zinc-700/80 hover:bg-[#3a3b3c] hover:text-white"
-              }`}
-            >
-              <span>Genres {genres.length > 0 ? `(${genres.length})` : ""}</span>
-            </button>
-          )}
-
-          {/* Facebook-style Date Filter (Year & Month) */}
-          {(config.showDateFilter !== false && config.showEraFilter !== false) && (
-            <FacebookDateFilter
-              selectedYear={selectedYear}
-              selectedMonth={selectedMonth}
-              onSelectDate={(y, m) => {
-                setSelectedYear(y);
-                setSelectedMonth(m);
-              }}
-              onClear={() => {
-                setSelectedYear("");
-                setSelectedMonth("");
-              }}
-            />
-          )}
-
-          {/* Origin Country */}
-          {config.showCountryFilter !== false && (
-            <FilterDropdown
-              label={`Origin: ${countryLabel}`}
-              active={country !== "ALL"}
-              onClear={() => setCountry("ALL")}
-              width="w-60"
-            >
-              <div className="py-1 max-h-72 overflow-y-auto scrollbar-none">
-                {TAXONOMY.regions.map((r) => (
-                  <OptionItem
-                    key={r.code}
-                    label={`${r.flag} ${r.label}`}
-                    active={country === r.code}
-                    onClick={() => setCountry(r.code)}
-                  />
-                ))}
-              </div>
-            </FilterDropdown>
-          )}
-
-          {/* Min Rating */}
-          {config.showRatingFilter !== false && (
-            <FilterDropdown
-              label={minRating ? `Rating: ★ ${minRating}+` : "Min Rating"}
-              active={Boolean(minRating)}
-              onClear={() => setMinRating("")}
-              width="w-48"
-            >
-              <div className="py-1 max-h-64 overflow-y-auto scrollbar-none">
-                {RATING_STEPS.map((r) => (
-                  <OptionItem
-                    key={r.id}
-                    label={r.label}
-                    active={minRating === r.id}
-                    onClick={() => setMinRating(r.id)}
-                  />
-                ))}
-              </div>
-            </FilterDropdown>
-          )}
-
-          {/* TV Status */}
-          {config.showStatusFilter && (
-            <FilterDropdown
-              label={tvStatus ? `Status: ${tvStatus}` : "Series Status"}
-              active={Boolean(tvStatus)}
-              onClear={() => setTvStatus("")}
-              width="w-52"
-            >
-              <div className="py-1">
-                {STATUS_OPTIONS.map((s) => (
-                  <OptionItem
-                    key={s.id}
-                    label={s.label}
-                    active={tvStatus === s.id}
-                    onClick={() => setTvStatus(s.id)}
-                  />
-                ))}
-              </div>
-            </FilterDropdown>
-          )}
-
-          {/* Sort By Dropdown */}
-          <FilterDropdown
-            label={`Sort: ${sortLabel}`}
-            active={sortBy !== "popularity.desc"}
-            onClear={() => setSortBy("popularity.desc")}
-            width="w-60"
-          >
-            <div className="py-1">
-              {sortOptions.map((s) => (
-                <OptionItem
-                  key={s.id}
-                  label={s.label}
-                  active={sortBy === s.id}
-                  onClick={() => setSortBy(s.id)}
-                />
-              ))}
-            </div>
-          </FilterDropdown>
-
-          {/* Reset Filters */}
-          {activeCount > 0 && (
-            <button
-              onClick={() => {
-                audioFX.playPop();
-                handleReset();
-              }}
-              className="flex items-center gap-1.5 rounded-xl border border-rose-400/20 bg-rose-400/5 px-3 py-2 text-[11px] font-bold text-rose-400 hover:bg-rose-400/10 transition-all shrink-0 cursor-pointer"
-            >
-              <RotateCcw className="h-3 w-3" />
-              Reset ({activeCount})
-            </button>
-          )}
-        </div>
-
-        {/* Full-Width Genre Filter Panel */}
-        {isGenreOpen && (
-          <div className="w-full rounded-2xl border border-zinc-700/80 bg-[#18191a] p-4 sm:p-5 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-150 space-y-3.5">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-200">
-                  Select Genres &amp; Themes
-                </span>
-                {genres.length > 0 ? (
-                  <span className="rounded-lg bg-white/10 border border-white/20 px-2.5 py-0.5 text-[11px] font-bold text-white font-mono">
-                    {genres.length} Selected
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-zinc-400 font-medium">
-                    All Genres Shown ({ALL_GENRES_ORDERED.length})
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {genres.length > 0 && (
-                  <button
-                    onClick={() => {
-                      audioFX.playPop();
-                      setGenres([]);
-                    }}
-                    className="text-xs text-[#E50914] hover:underline font-bold px-2 py-1 transition-colors"
-                  >
-                    Clear All
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    audioFX.playClick();
-                    setIsGenreOpen(false);
-                  }}
-                  className="rounded-xl bg-white px-3.5 py-1 text-xs font-bold text-zinc-950 shadow-sm hover:bg-zinc-200 transition-colors cursor-pointer"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 sm:gap-2">
-              {ALL_GENRES_ORDERED.map((g) => (
-                <MultiChip
-                  key={g.id}
-                  label={g.name}
-                  active={genres.includes(String(g.id))}
-                  onClick={() => toggleGenre(String(g.id))}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Active Filter Pills Row */}
-        {activeCount > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center pt-1">
-            {genres.map((gId) => {
-              const name = getGenreName(gId);
-              return <ActivePill key={gId} label={name} onRemove={() => toggleGenre(gId)} />;
-            })}
-            {(selectedYear || selectedMonth) && (
-              <ActivePill
-                label={`Date: ${datePillLabel}`}
-                onRemove={() => {
-                  setSelectedYear("");
-                  setSelectedMonth("");
-                }}
-              />
-            )}
-            {country !== "ALL" && (
-              <ActivePill
-                label={`${TAXONOMY.regions.find((r) => r.code === country)?.flag ?? ""} ${
-                  TAXONOMY.regions.find((r) => r.code === country)?.label ?? country
-                }`}
-                onRemove={() => setCountry("ALL")}
-              />
-            )}
-            {minRating && (
-              <ActivePill label={`Rating ≥ ${minRating}`} onRemove={() => setMinRating("")} />
-            )}
-            {sortBy !== "popularity.desc" && (
-              <ActivePill
-                label={`Sort: ${sortOptions.find((s) => s.id === sortBy)?.label.split("(")[0].trim() ?? sortBy}`}
-                onRemove={() => setSortBy("popularity.desc")}
-              />
-            )}
-            {tvStatus && <ActivePill label={tvStatus} onRemove={() => setTvStatus("")} />}
-            <button
-              onClick={() => {
-                audioFX.playPop();
-                handleReset();
-              }}
-              className="text-[10px] text-zinc-500 hover:text-rose-400 font-semibold ml-1 transition-colors cursor-pointer"
-            >
-              Clear All ×
-            </button>
-          </div>
-        )}
-      </div>
+      {/* ─── Unified Responsive Filter Bar (Identical to Explore) ─── */}
+      <DiscoverFilterBar
+        mediaType={mediaType}
+        setMediaType={setMediaType}
+        genres={genres}
+        setGenres={setGenres}
+        toggleGenre={toggleGenre}
+        isGenreOpen={isGenreOpen}
+        setIsGenreOpen={setIsGenreOpen}
+        selectedYear={selectedYear}
+        setSelectedYear={setSelectedYear}
+        selectedMonth={selectedMonth}
+        setSelectedMonth={setSelectedMonth}
+        country={country}
+        setCountry={setCountry}
+        minRating={minRating}
+        setMinRating={setMinRating}
+        tvStatus={tvStatus}
+        setTvStatus={setTvStatus}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        activeCount={activeCount}
+        handleReset={handleReset}
+        resultCount={totalResults > 0 ? totalResults : null}
+        showMediaTypeFilter={config.showMediaTypeFilter}
+        showCountryFilter={config.showCountryFilter}
+        showRatingFilter={config.showRatingFilter}
+        showStatusFilter={config.showStatusFilter}
+        showDateFilter={config.showDateFilter}
+        customSortOptions={config.customSortOptions || sortOptions}
+      />
 
       {/* ─── Media Results List ─── */}
       <CatalogMediaList

@@ -3,6 +3,7 @@ import { CatalogPreviewService } from "@/lib/services/catalog-preview.server";
 import { LantawonLandingView } from "@/components/landing/LantawonLandingView";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { SubscriptionPackage } from "@/lib/services/subscription-service";
+import { withCanonicalPrice } from "@/lib/constants/pricing";
 
 // Force dynamic rendering to allow auth checks in client components
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ async function getLandingPlan(): Promise<SubscriptionPackage | null> {
       console.error("[Landing] Failed to fetch plan:", JSON.stringify(error));
       return null;
     }
-    return (data?.[0] as SubscriptionPackage) ?? null;
+    return withCanonicalPrice((data?.[0] as SubscriptionPackage) ?? null);
   } catch (e) {
     console.error("[Landing] Plan fetch threw:", e);
     return null;

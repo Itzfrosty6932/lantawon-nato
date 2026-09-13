@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Tv, Radio, ChevronRight } from "lucide-react";
 import { audioFX } from "@/lib/audio/audio-fx";
@@ -91,6 +91,30 @@ const FEATURED_NETWORKS: NetworkEntry[] = [
 
 export default function NetworksCatalogPage() {
   const [search, setSearch] = useState("");
+  const [logos, setLogos] = useState<Record<number, string | null>>({});
+  const [brokenLogos, setBrokenLogos] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      FEATURED_NETWORKS.map(async (network) => {
+        try {
+          const res = await fetch(`/api/catalog/brand?kind=network&id=${network.id}`);
+          if (!res.ok) return [network.id, null] as const;
+          const data = await res.json();
+          return [network.id, data.logo_path as string | null] as const;
+        } catch {
+          return [network.id, null] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setLogos(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = FEATURED_NETWORKS.filter((n) =>
     n.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -137,8 +161,19 @@ export default function NetworksCatalogPage() {
           >
             <div>
               <div className="flex items-center gap-3 mb-2.5">
-                <div className="h-9 w-9 rounded-lg bg-zinc-800 flex items-center justify-center text-blue-400 font-mono font-bold text-xs border border-zinc-700/60 shrink-0">
-                  {network.countryCode}
+                <div className="h-9 w-9 rounded-lg bg-white flex items-center justify-center overflow-hidden border border-zinc-700/60 shrink-0">
+                  {logos[network.id] && !brokenLogos[network.id] ? (
+                    <img
+                      src={`https://image.tmdb.org/t/p/w300${logos[network.id]}`}
+                      alt={network.name}
+                      onError={() => setBrokenLogos((prev) => ({ ...prev, [network.id]: true }))}
+                      className="max-h-full max-w-full object-contain p-1"
+                    />
+                  ) : (
+                    <span className="text-blue-500 font-mono font-bold text-xs">
+                      {network.countryCode}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-white group-hover:text-blue-400 transition-colors">

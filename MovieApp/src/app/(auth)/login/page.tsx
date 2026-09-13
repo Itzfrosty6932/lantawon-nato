@@ -120,6 +120,19 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* Device Concurrency / Superseded Notice */}
+        {searchParams.get("reason") === "device_superseded" && (
+          <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold animate-in fade-in flex items-start gap-2">
+            <span className="text-base shrink-0">⚠️</span>
+            <div>
+              <p className="font-bold text-white mb-0.5">Logged out from another device</p>
+              <p className="text-amber-300/90 text-[11px] leading-relaxed">
+                Your account was opened on another device. To protect your streaming pass, only 1 active device session is permitted at a time.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Error Alert */}
         {errorMessage && (
           <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold animate-in fade-in">

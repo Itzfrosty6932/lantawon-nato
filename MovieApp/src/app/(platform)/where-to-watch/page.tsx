@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Tv, ExternalLink, ShieldCheck, ChevronRight } from "lucide-react";
 import { ISO_COUNTRIES, CountryEntry } from "@/lib/constants/taxonomies";
+import { SmartImage } from "@/components/ui/SmartImage";
 import { audioFX } from "@/lib/audio/audio-fx";
 
 interface ProviderHubEntry {
@@ -83,6 +84,7 @@ const GLOBAL_PROVIDERS: ProviderHubEntry[] = [
 export default function WhereToWatchHubPage() {
   const [selectedCountry, setSelectedCountry] = useState<CountryEntry>(ISO_COUNTRIES[0]);
   const [categoryFilter, setCategoryFilter] = useState<"all" | "subscription" | "free" | "rent_buy">("all");
+  const [logos, setLogos] = useState<Record<number, string>>({});
 
   useEffect(() => {
     const saved = localStorage.getItem("preferred_country_code");
@@ -90,6 +92,19 @@ export default function WhereToWatchHubPage() {
       const match = ISO_COUNTRIES.find((c) => c.code === saved);
       if (match) setSelectedCountry(match);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/providers/logos")
+      .then((res) => (res.ok ? res.json() : { logos: {} }))
+      .then((data) => {
+        if (!cancelled) setLogos(data.logos || {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filteredProviders = GLOBAL_PROVIDERS.filter((p) => {
@@ -159,10 +174,26 @@ export default function WhereToWatchHubPage() {
           >
             <div>
               <div className="flex items-center justify-between gap-3 mb-2">
-                <h3 className="font-bold text-base text-white group-hover:text-[#E31937] transition-colors">
-                  {provider.name}
-                </h3>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-emerald-400 border border-emerald-500/30">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-white flex items-center justify-center overflow-hidden border border-zinc-700/60 shrink-0">
+                    {logos[provider.id] ? (
+                      <SmartImage
+                        src={`https://image.tmdb.org/t/p/w154${logos[provider.id]}`}
+                        alt={provider.name}
+                        fallbackType="avatar"
+                        className="max-h-full max-w-full object-contain p-0.5"
+                      />
+                    ) : (
+                      <span className="text-zinc-900 font-black text-xs">
+                        {provider.name.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-bold text-base text-white group-hover:text-[#E31937] transition-colors truncate">
+                    {provider.name}
+                  </h3>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-emerald-400 border border-emerald-500/30 shrink-0">
                   {provider.badge}
                 </span>
               </div>

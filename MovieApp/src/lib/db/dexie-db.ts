@@ -7,6 +7,7 @@ import type {
   UserProgressionRecord,
   UserPreferencesRecord,
   PlaylistRecord,
+  PlaylistItem,
   SearchHistoryRecord,
 } from "@/types/storage";
 import { GUEST_USER_ID } from "@/types/storage";
@@ -309,6 +310,68 @@ export class LantawonDatabase extends Dexie {
       }
     } catch (e) {
       console.warn("[Dexie Clear History Error]", e);
+    }
+  }
+
+  /**
+   * Fetch playlists with automated deduplication and cleanup of legacy duplicate "Watch Later" records.
+   */
+  async getUnifiedPlaylists(userId = GUEST_USER_ID): Promise<PlaylistRecord[]> {
+    try {
+      const all = await this.playlists.toArray();
+      const canonicalKey = LantawonDatabase.playlistKey(userId, "watch_later");
+
+      // Find any system or duplicate "Watch Later" playlists
+      const watchLaterEntries = all.filter(
+        (p) =>
+          p.id === canonicalKey ||
+          p.id === "watch_later" ||
+          (p.title && p.title.trim().toLowerCase() === "watch later")
+      );
+
+      // Merge items from all duplicate watch later entries into one
+      const mergedItems: PlaylistItem[] = [];
+      const seenItemIds = new Set<string | number>();
+      for (const pl of watchLaterEntries) {
+        if (Array.isArray(pl.items)) {
+          for (const item of pl.items) {
+            if (!seenItemIds.has(item.id)) {
+              seenItemIds.add(item.id);
+              mergedItems.push(item);
+            }
+          }
+        }
+      }
+
+      // Purge any non-canonical duplicate entries from IndexedDB
+      for (const pl of watchLaterEntries) {
+        if (pl.id !== canonicalKey) {
+          await this.playlists.delete(pl.id);
+        }
+      }
+
+      // Upsert the single canonical Watch Later playlist
+      const canonicalWatchLater: PlaylistRecord = {
+        id: canonicalKey,
+        userId,
+        title: "Watch Later",
+        description: "Default queue for saved movies & series",
+        isSystem: true,
+        itemCount: mergedItems.length,
+        items: mergedItems,
+        createdAt: watchLaterEntries[0]?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await this.playlists.put(canonicalWatchLater);
+
+      // Fetch fresh cleaned list
+      const cleaned = await this.playlists.toArray();
+      const customList = cleaned.filter((p) => p.id !== canonicalKey);
+
+      return [canonicalWatchLater, ...customList];
+    } catch (e) {
+      console.warn("[Dexie Playlists Error]", e);
+      return [];
     }
   }
 

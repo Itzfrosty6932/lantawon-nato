@@ -10,10 +10,12 @@ import {
   AlertCircle,
   Tag,
   Clock,
+  Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/Toast";
 import { audioFX } from "@/lib/audio/audio-fx";
+import { SOLO_PASS_PRICE_PHP, withCanonicalPrice } from "@/lib/constants/pricing";
 
 interface SubscriptionPackage {
   id: string;
@@ -59,7 +61,6 @@ export function AdminPackagesTab() {
 
   useEffect(() => {
     loadPackages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadPackages = async () => {
@@ -73,9 +74,9 @@ export function AdminPackagesTab() {
 
     if (error) {
       console.error("Error loading packages:", JSON.stringify(error));
-      showToast(`❌ Failed to load packages: ${error.message}`, "error");
+      showToast(`Failed to load packages: ${error.message}`, "error");
     } else {
-      setPackages(data || []);
+      setPackages((data || []).map(withCanonicalPrice));
     }
 
     setLoading(false);
@@ -94,8 +95,7 @@ export function AdminPackagesTab() {
     );
     setPromoExpiresAt(
       isPromoLive(pkg) && pkg.promo_expires_at
-        ? // datetime-local expects "YYYY-MM-DDTHH:mm"
-          new Date(pkg.promo_expires_at).toISOString().slice(0, 16)
+        ? new Date(pkg.promo_expires_at).toISOString().slice(0, 16)
         : ""
     );
     audioFX.playClick();
@@ -115,11 +115,11 @@ export function AdminPackagesTab() {
 
   const handleSubmit = async () => {
     if (!editingPackage || !name || !pricePhp || !sessions) {
-      showToast("⚠️ Please fill in all required fields", "error");
+      showToast("Please fill in all required fields", "error");
       return;
     }
     if (promoPercent && (parseInt(promoPercent) < 1 || parseInt(promoPercent) > 100)) {
-      showToast("⚠️ Promo discount must be between 1 and 100 percent", "error");
+      showToast("Promo discount must be between 1 and 100 percent", "error");
       return;
     }
 
@@ -127,7 +127,6 @@ export function AdminPackagesTab() {
     audioFX.playClick();
 
     try {
-      // Promo is cleared when the discount field is emptied or expiry passes.
       const hasPromo = !!promoPercent;
       const packageData: Partial<SubscriptionPackage> = {
         name: name.trim(),
@@ -150,330 +149,273 @@ export function AdminPackagesTab() {
 
       if (error) throw error;
 
-      // NOTE: no client-side audit_logs INSERT — migration 14 removed the
-      // public INSERT policy; audit rows are written server-side only.
-
-      showToast("✅ Plan updated — landing page reflects it instantly", "success");
-      setShowEditorFalse();
+      audioFX.playSuccess();
+      showToast("Plan & promo configuration updated live!", "success");
+      resetForm();
       loadPackages();
-    } catch (error: any) {
-      console.error("Error saving package:", JSON.stringify(error));
-      showToast(`❌ ${error.message}`, "error");
+    } catch (err: any) {
+      showToast(err.message || "Failed to update package", "error");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const setShowEditorFalse = () => {
-    setEditingPackage(null);
-    resetForm();
-  };
-
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-black text-white">Subscription</h2>
-          <p className="text-sm text-zinc-400 mt-1">
-            The plan your members buy — same one shown on the landing page and /pricing
-          </p>
-        </div>
+      {/* ── Top Header ── */}
+      <div>
+        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <Package className="h-5 w-5 text-[#E50914]" />
+          <span>Plans &amp; Live Promos</span>
+        </h2>
+        <p className="text-xs text-zinc-400 mt-0.5">
+          Configure subscription pricing and promotional discounts. Changes immediately sync across the Landing Page, Signup, and Checkout flows.
+        </p>
       </div>
 
-      {/* Info Banner */}
-      <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-start gap-3">
-        <AlertCircle className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 text-sm">
-          <p className="text-blue-300 font-bold">Single-plan platform</p>
-          <p className="text-blue-200/80">
-            Lantawon sells ONE subscription (Solo Pass). Editing it here updates the
-            landing page hero card, the pricing page, and checkout immediately. Set a
-            promo discount with an expiry date to run a sale — when the clock runs out,
-            the promo disappears everywhere on its own.
-          </p>
-        </div>
-      </div>
-
-      {/* Packages List */}
+      {/* ── Package List Cards ── */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+        <div className="p-12 text-center text-zinc-400 flex items-center justify-center gap-2">
+          <Loader2 className="h-5 w-5 animate-spin text-[#E50914]" />
+          <span className="text-xs font-semibold">Loading package configuration...</span>
         </div>
       ) : packages.length === 0 ? (
-        <div className="text-center py-16 rounded-2xl bg-zinc-950 border border-zinc-800">
-          <Package className="h-16 w-16 mx-auto mb-4 text-zinc-600" />
-          <h3 className="text-lg font-bold mb-2">No Plans</h3>
-          <p className="text-sm text-zinc-400">Run migrations to seed the Solo Pass plan</p>
+        <div className="p-12 text-center text-zinc-500 text-xs">
+          No active subscription packages found in database.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {packages.map((pkg) => {
             const promoLive = isPromoLive(pkg);
-            const promoPrice = promoLive
-              ? Math.round(pkg.price_php * (1 - (pkg.promo_percent ?? 0) / 100))
+            const promoPrice = promoLive && pkg.promo_percent
+              ? (pkg.price_php * (1 - pkg.promo_percent / 100)).toFixed(0)
               : null;
+
             return (
               <div
                 key={pkg.id}
-                className={`rounded-2xl p-6 border ${
-                  pkg.is_active
-                    ? "bg-zinc-950 border-zinc-800"
-                    : "bg-zinc-950/50 border-zinc-800/50 opacity-60"
-                } space-y-4`}
+                className="p-5 rounded-3xl bg-[#141518]/90 border border-white/10 shadow-xl space-y-4 relative overflow-hidden"
               >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-xl font-bold text-white">{pkg.name}</h3>
-                      {!pkg.is_active && (
-                        <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500 text-xs font-bold">
-                          Inactive
-                        </span>
-                      )}
-                      {promoLive && (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold flex items-center gap-1">
-                          <Tag className="h-3 w-3" />
-                          {pkg.promo_label || `${pkg.promo_percent}% OFF`} · LIVE
-                        </span>
-                      )}
-                      {pkg.promo_percent != null && !promoLive && (
-                        <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500 text-xs font-bold flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Promo expired
-                        </span>
-                      )}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <span>{pkg.name}</span>
+                      <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase px-1.5 py-0.5 rounded bg-white/5">
+                        {pkg.code}
+                      </span>
+                    </h3>
+                    <div className="text-xs text-zinc-400 mt-0.5">
+                      {pkg.max_concurrent_sessions} active screen ({pkg.billing_interval})
                     </div>
-                    <p className="text-xs text-zinc-500 font-mono uppercase">Code: {pkg.code}</p>
                   </div>
+
+                  {promoLive && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-bold">
+                      <Sparkles className="h-3 w-3" />
+                      {pkg.promo_label || `${pkg.promo_percent}% OFF`}
+                    </span>
+                  )}
                 </div>
 
-                <div className="space-y-2">
+                {/* Price Display */}
+                <div className="space-y-1">
                   {promoLive ? (
-                    <>
-                      <div className="flex items-baseline gap-3">
-                        <span className="text-sm text-zinc-500 line-through">
-                          ₱{pkg.price_php.toFixed(0)}
-                        </span>
-                        <span className="text-3xl font-black text-emerald-400">
-                          ₱{promoPrice}
-                          <span className="text-sm text-zinc-400">/month</span>
-                        </span>
-                      </div>
-                      {pkg.promo_expires_at && (
-                        <div className="text-xs text-emerald-300/80 font-mono flex items-center gap-1.5">
-                          <Clock className="h-3 w-3" />
-                          Ends {new Date(pkg.promo_expires_at).toLocaleString()}
-                        </div>
-                      )}
-                    </>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xs text-zinc-500 line-through">₱{pkg.price_php}</span>
+                      <span className="text-2xl font-black text-emerald-400 font-mono">₱{promoPrice}</span>
+                      <span className="text-xs text-zinc-400">/ month</span>
+                    </div>
                   ) : (
-                    <div className="text-3xl font-black text-white">
-                      ₱{pkg.price_php.toFixed(0)}
-                      <span className="text-sm text-zinc-400">/month</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black text-white font-mono">₱{pkg.price_php}</span>
+                      <span className="text-xs text-zinc-400">/ month</span>
                     </div>
                   )}
 
-                  <div className="text-sm text-zinc-400">
-                    {pkg.max_concurrent_sessions} concurrent{" "}
-                    {pkg.max_concurrent_sessions === 1 ? "session" : "sessions"}
-                  </div>
-
-                  {pkg.description && (
-                    <p className="text-xs text-zinc-500 leading-relaxed">{pkg.description}</p>
+                  {promoLive && pkg.promo_expires_at && (
+                    <div className="text-[10px] text-emerald-400/80 font-mono flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Expires: {new Date(pkg.promo_expires_at).toLocaleDateString()}
+                    </div>
                   )}
                 </div>
 
-                <div className="pt-4 border-t border-zinc-800">
-                  <button
-                    onClick={() => openEditor(pkg)}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                    Edit Plan &amp; Promo
-                  </button>
-                </div>
+                {pkg.description && (
+                  <p className="text-xs text-zinc-400 leading-relaxed border-t border-white/5 pt-3">
+                    {pkg.description}
+                  </p>
+                )}
 
-                <div className="text-xs text-zinc-600">
-                  Created {new Date(pkg.created_at).toLocaleDateString()}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => openEditor(pkg)}
+                  className="w-full py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  <span>Configure Plan &amp; Promo</span>
+                </button>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal ── */}
       {editingPackage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-2xl rounded-2xl bg-zinc-950 border border-zinc-800 p-6 space-y-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold">Edit {editingPackage.name}</h3>
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-[#141518] border border-white/15 shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Package className="h-5 w-5 text-[#E50914]" />
+                <h3 className="text-base font-bold text-white">Configure {editingPackage.name}</h3>
+              </div>
               <button
-                onClick={setShowEditorFalse}
-                className="text-zinc-400 hover:text-white"
+                type="button"
+                onClick={resetForm}
+                className="p-1 rounded-full text-zinc-400 hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold">
-                    Display Name <span className="text-red-400">*</span>
-                  </label>
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-zinc-300">Plan Name</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Solo Pass"
-                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-[#E50914] focus:outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-[#E50914]"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold">
-                    Price (PHP) <span className="text-red-400">*</span>
-                  </label>
+                <div className="space-y-1.5">
+                  <label className="font-bold text-zinc-300">Base Price (PHP)</label>
                   <input
                     type="number"
                     value={pricePhp}
                     onChange={(e) => setPricePhp(e.target.value)}
-                    placeholder="349"
-                    min="1"
-                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-[#E50914] focus:outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-[#E50914]"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold">
-                    Concurrent Sessions <span className="text-red-400">*</span>
-                  </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-zinc-300">Max Screens</label>
                   <input
                     type="number"
                     value={sessions}
                     onChange={(e) => setSessions(e.target.value)}
-                    placeholder="1"
-                    min="1"
-                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-[#E50914] focus:outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-[#E50914]"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold">Status</label>
-                  <div className="flex items-center gap-2 h-[42px]">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-zinc-300">Visibility</label>
+                  <div className="flex items-center gap-2 h-[38px]">
                     <input
                       type="checkbox"
-                      id="active"
+                      id="pkg-active"
                       checked={isActive}
                       onChange={(e) => setIsActive(e.target.checked)}
-                      className="rounded"
+                      className="rounded accent-[#E50914]"
                     />
-                    <label htmlFor="active" className="text-sm cursor-pointer">
-                      Active (visible to users)
+                    <label htmlFor="pkg-active" className="text-zinc-300 cursor-pointer">
+                      Active for checkout
                     </label>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-bold">Description</label>
+              <div className="space-y-1.5">
+                <label className="font-bold text-zinc-300">Plan Description</label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Shown under the price on the landing page..."
-                  className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-[#E50914] focus:outline-none resize-none h-20"
+                  rows={2}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-[#E50914] resize-none"
                 />
               </div>
 
-              {/* PROMO SECTION */}
-              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 space-y-4">
-                <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
+              {/* Promo Section */}
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-3">
+                <div className="flex items-center gap-2 font-bold text-emerald-400">
                   <Tag className="h-4 w-4" />
-                  Promo Discount
+                  <span>Promotional Discount</span>
                 </div>
-                <p className="text-xs text-zinc-400 -mt-2">
-                  Leave the discount empty for normal pricing. When set, every public
-                  surface shows a strikethrough price, the promo badge, and this expiry.
-                </p>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold">Discount (%)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-zinc-400 font-bold uppercase">Discount %</label>
                     <input
                       type="number"
                       value={promoPercent}
                       onChange={(e) => setPromoPercent(e.target.value)}
-                      placeholder="e.g. 20 = 20% off"
+                      placeholder="e.g. 20"
                       min="1"
                       max="100"
-                      className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+                      className="w-full px-3.5 py-2 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-emerald-400"
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold">Expires At</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-zinc-400 font-bold uppercase">Promo Label</label>
                     <input
-                      type="datetime-local"
-                      value={promoExpiresAt}
-                      onChange={(e) => setPromoExpiresAt(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white [color-scheme:dark] focus:border-emerald-500 focus:outline-none"
+                      type="text"
+                      value={promoLabel}
+                      onChange={(e) => setPromoLabel(e.target.value)}
+                      placeholder="e.g. 80% Launch Promo"
+                      className="w-full px-3.5 py-2 rounded-xl bg-black/60 border border-white/10 text-white text-base sm:text-xs outline-none focus:border-emerald-400"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold">Promo Label</label>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-zinc-400 font-bold uppercase">Promo Expiration (Optional)</label>
                   <input
-                    type="text"
-                    value={promoLabel}
-                    onChange={(e) => setPromoLabel(e.target.value)}
-                    placeholder='e.g. "Launch Promo" (defaults to "20% OFF")'
-                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+                    type="datetime-local"
+                    value={promoExpiresAt}
+                    onChange={(e) => setPromoExpiresAt(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl bg-black/60 border border-white/10 text-white [color-scheme:dark] text-base sm:text-xs outline-none focus:border-emerald-400"
                   />
                 </div>
-              </div>
 
-              {/* Live preview */}
-              {promoPercent && parseInt(promoPercent) >= 1 && parseInt(promoPercent) <= 100 && (
-                <div className="rounded-xl border border-dashed border-zinc-700 p-4 text-sm space-y-1">
-                  <p className="text-xs font-mono uppercase text-zinc-500 mb-2">Preview</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="line-through text-zinc-500">₱{pricePhp || "?"}</span>
-                    <span className="text-xl font-black text-emerald-400">
-                      ₱{(parseFloat(pricePhp) * (1 - parseInt(promoPercent) / 100)).toFixed(0)}
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-black">
-                      {promoLabel.trim() || `${promoPercent}% OFF`}
+                {promoPercent && parseInt(promoPercent) >= 1 && (
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between">
+                    <span className="text-zinc-400">Effective Landing Price:</span>
+                    <span className="font-mono font-bold text-emerald-400 text-sm">
+                      ₱{Math.round(parseFloat(pricePhp || "99") * (1 - parseInt(promoPercent) / 100))} PHP / month
                     </span>
                   </div>
-                  {promoExpiresAt && (
-                    <p className="text-xs text-zinc-500 font-mono">
-                      ends {new Date(promoExpiresAt).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleSubmit}
+                className="flex-1 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{submitting ? "Saving..." : "Save Live Configuration"}</span>
+              </button>
 
               <button
-                onClick={handleSubmit}
-                disabled={submitting || !name || !pricePhp || !sessions}
-                className="w-full py-3 rounded-xl bg-[#E50914] hover:bg-[#b80710] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                type="button"
+                onClick={resetForm}
+                className="px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 font-semibold text-xs transition-colors"
               >
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-5 w-5" />
-                    Save Changes
-                  </>
-                )}
+                Cancel
               </button>
             </div>
           </div>
