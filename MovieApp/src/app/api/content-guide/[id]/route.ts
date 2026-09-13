@@ -42,7 +42,11 @@ export async function GET(
       officialRatings,
     });
 
-    return NextResponse.json(classification);
+    return NextResponse.json(classification, {
+      headers: {
+        "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+      },
+    });
   } catch (error) {
     console.error("[API Content Guide Error]", error);
     return NextResponse.json({ error: "Failed to generate content classification" }, { status: 500 });

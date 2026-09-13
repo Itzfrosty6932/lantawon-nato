@@ -83,18 +83,25 @@ export async function GET(request: Request) {
       buyList.length > 0 ||
       rentList.length > 0;
 
-    return NextResponse.json({
-      id,
-      type,
-      region,
-      hasProviders,
-      justWatchLink: regionData.link || null,
-      free: freeList,
-      flatrate: flatrateList,
-      buy: buyList,
-      rent: rentList,
-      availableRegions: Object.keys(data.results),
-    });
+    return NextResponse.json(
+      {
+        id,
+        type,
+        region,
+        hasProviders,
+        justWatchLink: regionData.link || null,
+        free: freeList,
+        flatrate: flatrateList,
+        buy: buyList,
+        rent: rentList,
+        availableRegions: Object.keys(data.results),
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        },
+      }
+    );
   } catch (error) {
     console.error("[API Provider Title Error]", error);
     return NextResponse.json(

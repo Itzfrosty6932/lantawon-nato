@@ -203,17 +203,24 @@ export async function GET(req: NextRequest) {
     resultsMap[s.id] = s;
   });
 
-  return NextResponse.json({
-    mediaId,
-    mediaType,
-    season,
-    episode,
-    timestamp: new Date().toISOString(),
-    totalServers: results.length,
-    playableCount: results.filter((r) => r.isPlayable).length,
-    bestServer: bestServer.id,
-    cleanHdCount: results.filter((r) => r.isPlayable && serverDefMap.get(r.id)?.isCleanHd).length,
-    servers: scoredServers,
-    results: resultsMap,
-  });
+  return NextResponse.json(
+    {
+      mediaId,
+      mediaType,
+      season,
+      episode,
+      timestamp: new Date().toISOString(),
+      totalServers: results.length,
+      playableCount: results.filter((r) => r.isPlayable).length,
+      bestServer: bestServer.id,
+      cleanHdCount: results.filter((r) => r.isPlayable && serverDefMap.get(r.id)?.isCleanHd).length,
+      servers: scoredServers,
+      results: resultsMap,
+    },
+    {
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=1800",
+      },
+    }
+  );
 }

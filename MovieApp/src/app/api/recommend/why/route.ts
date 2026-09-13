@@ -11,5 +11,9 @@ export async function GET(req: NextRequest) {
   }
 
   const data = await RecommendationService.getWhyRecommended(id, type);
-  return NextResponse.json(data);
+  return NextResponse.json(data, {
+    headers: {
+      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+    },
+  });
 }

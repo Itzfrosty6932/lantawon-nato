@@ -78,14 +78,15 @@ export function GuestSessionStickyTimer() {
       setRemainingSeconds(next);
     }, 1000);
 
-    // Server heartbeat every 30s: reports elapsed, applies server clamps
+    // Server heartbeat every 60s: reports elapsed, applies server clamps (paused when tab is hidden)
     const heartbeatInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (GuestTimerService.isGuestExpired()) {
         clearInterval(heartbeatInterval);
         return;
       }
-      GuestTimerService.heartbeat(30);
-    }, 30000);
+      GuestTimerService.heartbeat(60);
+    }, 60000);
 
     return () => {
       clearInterval(interval);
