@@ -10,6 +10,8 @@ import { createAdminSupabaseClient } from "@/lib/supabase/admin";
  * When a user logs in or initializes on a new device, any previously active
  * devices are immediately marked is_active = false and blocked_at = now().
  */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
   try {
