@@ -84,6 +84,10 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
   const [seasonEpisodes, setSeasonEpisodes] = useState<Episode[]>([]);
   const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
+  // playerWrapperRef wraps BOTH the viewport AND the control bar.
+  // This is the element we hand to requestFullscreen() so controls
+  // remain visible inside the native fullscreen surface.
+  const playerWrapperRef = useRef<HTMLDivElement | null>(null);
   // Player Surface State
   const [hudMessage, setHudMessage] = useState<string | null>(null);
   const [isFrameLoading, setIsFrameLoading] = useState(true);
@@ -318,9 +322,19 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     }
   }, [mediaId, mediaType, currentSeason, currentEpisode, isOfflineMode, handleSelectServer, showToast]);
 
-  useEffect(() => {
-    probeServers();
-  }, [probeServers]);
+  // ─── Probe is NOW LAZY ────────────────────────────────────────────────────
+  // Previously probeServers() fired on every mount and on every episode
+  // change, fanning out 14 concurrent requests to external hosts on every
+  // page load. This consumed Vercel Edge Requests rapidly and provided no
+  // benefit because the user may never open the Mirrors drawer at all.
+  //
+  // Probe is now triggered ONLY when the user explicitly:
+  //   • opens the Mirrors drawer  (handled in onProbeServers callback below)
+  //   • clicks Auto-Fix           (handleAutoSelectBest calls probeServers)
+  //   • clicks Retry inside the player (onProbeServers prop)
+  //
+  // Initial health state remains empty {}; the player still works because
+  // resolvedMirrors supplies the active URL directly from the server.
 
   // ─── 1b. AUDIT C6: Resolve mirror URLs SERVER-SIDE ─────────────────────────
   // The client never builds embed URLs anymore. This route enforces auth +
@@ -658,40 +672,62 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     });
   }, [showToast]);
 
+  // ─── Fullscreen Toggle ───────────────────────────────────────────────────
+  // We request fullscreen on playerWrapperRef which contains BOTH the video
+  // viewport AND the CinemaControlBar — so controls stay visible inside the
+  // native fullscreen surface.
+  //
+  // State is NOT set optimistically here (race condition fix). Instead the
+  // fullscreenchange event listener below is the single source of truth for
+  // isFullScreen. This avoids stuck-fullscreen CSS when requestFullscreen()
+  // fails silently on mobile browsers.
   const handleToggleFullScreen = useCallback(async () => {
     audioFX.playPop();
     try {
-      if (!isFullScreen) {
-        if (videoContainerRef.current?.requestFullscreen) {
-          await videoContainerRef.current.requestFullscreen().catch(() => {});
+      if (!document.fullscreenElement) {
+        const target = playerWrapperRef.current;
+        if (target?.requestFullscreen) {
+          await target.requestFullscreen();
+          // state will be set by the fullscreenchange listener
+        } else {
+          // Browser doesn't support Fullscreen API (some older mobile)
+          // Fall back to CSS-only fullscreen as a last resort
+          setIsFullScreen(true);
+          showToast("Cinema Fullscreen Active (ESC to exit)", "success");
+          showHud("Full Mode: Active");
         }
-        setIsFullScreen(true);
-        showToast("Cinema Fullscreen Active (ESC to exit)", "success");
-        showHud("Full Mode: Active");
       } else {
-        if (typeof document !== "undefined" && document.fullscreenElement) {
-          await document.exitFullscreen().catch(() => {});
-        }
-        setIsFullScreen(false);
-        showToast("Exited Fullscreen", "info");
-        showHud("Full Mode: Standard");
+        await document.exitFullscreen();
+        // state will be cleared by the fullscreenchange listener
       }
     } catch {
-      // Fallback to CSS Fullscreen
-      setIsFullScreen(!isFullScreen);
+      // requestFullscreen can throw in restricted contexts (e.g. iOS Safari
+      // requires a direct user gesture on the video element). Silently ignore.
     }
-  }, [isFullScreen, showToast]);
+  }, [showToast]);
 
-  // Sync fullscreen state with native browser fullscreen changes
+  // ─── Fullscreen State Sync (authoritative) ─────────────────────────────
+  // This is the ONLY place isFullScreen state changes for native fullscreen.
+  // It reacts to both our own toggle and the user pressing ESC.
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement && isFullScreen) {
-        setIsFullScreen(false);
+      const inFullscreen = Boolean(document.fullscreenElement);
+      setIsFullScreen(inFullscreen);
+      if (inFullscreen) {
+        showHud("Full Mode: Active");
+      } else {
+        showHud("Full Mode: Standard");
       }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [isFullScreen]);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  // showHud is stable (no deps needed) — eslint-disable-next-line is intentional
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keyboard Shortcuts: 'S' (Switch Mirror), 'T' (Theater Mode), 'F' (Fullscreen)
   useEffect(() => {
@@ -726,7 +762,23 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
       <Header onOpenLibrary={() => setIsLibraryOpen(true)} />
 
       {/* ─── Hero Video Viewport Section ─── */}
-      <div className="w-full flex flex-col items-center bg-black pt-[57px] sm:pt-[65px]">
+      {/*
+        playerWrapperRef wraps the viewport + control bar together.
+        requestFullscreen() is called on this element so the controls remain
+        visible inside the native fullscreen surface. Without this wrapper,
+        CinemaControlBar was a sibling OUTSIDE the fullscreen element and
+        disappeared when fullscreen was entered.
+      */}
+      <div
+        ref={playerWrapperRef}
+        className={[
+          "w-full flex flex-col items-center bg-black pt-[57px] sm:pt-[65px]",
+          // In native fullscreen the browser makes this element fill the
+          // screen via :fullscreen. We reinforce with explicit sizing so
+          // the nested flex children also fill correctly.
+          isFullScreen ? "[&:fullscreen]:p-0 [&:-webkit-full-screen]:p-0" : "",
+        ].join(" ")}
+      >
         <CinemaPlayerViewport
           videoContainerRef={videoContainerRef}
           localVideoRef={localVideoRef}
@@ -754,7 +806,7 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
           showToast={showToast}
         />
 
-        {/* ─── Cinema Control Bar (Below Player) ─── */}
+        {/* ─── Cinema Control Bar (Below Player, INSIDE the fullscreen wrapper) ─── */}
         <CinemaControlBar
           activeServer={activeServer}
           isOfflineMode={isOfflineMode}
@@ -767,7 +819,11 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
           isDataSaver={dataSaver}
           onAutoSelectBest={handleAutoSelectBest}
           onSwitchNextServer={handleSwitchNextServer}
-          onToggleServerDrawer={() => setIsServerDrawerOpen(!isServerDrawerOpen)}
+          onToggleServerDrawer={() => {
+            // Probe lazily: only when user opens the Mirrors drawer
+            if (!isServerDrawerOpen) probeServers();
+            setIsServerDrawerOpen(!isServerDrawerOpen);
+          }}
           onToggleSettings={() => setIsSettingsOpen(!isSettingsOpen)}
           onToggleTheaterMode={handleToggleTheaterMode}
           onToggleFullScreen={handleToggleFullScreen}

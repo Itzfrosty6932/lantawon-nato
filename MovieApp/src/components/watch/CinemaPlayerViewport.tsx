@@ -69,9 +69,10 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
       return () => clearTimeout(timeout);
     }
   }, [isFrameLoading, activeServer, onFrameLoad]);
-  const containerClasses = isFullScreen
-    ? "fixed inset-0 z-[9999] w-screen h-screen max-w-none max-h-none bg-black flex items-center justify-center"
-    : isTheaterMode
+  // containerClasses: handles normal and theater mode only.
+  // Fullscreen is handled natively by the browser via requestFullscreen()
+  // on the playerWrapperRef in page.tsx — no CSS `fixed` trick needed.
+  const containerClasses = isTheaterMode
     ? "w-full max-w-none aspect-[21/9] sm:aspect-video h-[85vh] max-h-[85vh] relative bg-black overflow-hidden flex items-center justify-center transition-all duration-300"
     : "w-full max-w-[1560px] aspect-video max-h-[80vh] relative bg-black overflow-hidden flex items-center justify-center transition-all duration-300";
 
@@ -80,20 +81,6 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
       ref={videoContainerRef}
       className={containerClasses}
     >
-      {/* Floating Exit Fullscreen Button in Fullscreen Mode */}
-      {isFullScreen && (
-        <button
-          type="button"
-          onClick={() => {
-            audioFX.playClick();
-            onToggleFullScreen?.();
-          }}
-          className="absolute top-4 right-4 z-40 px-3.5 py-2 rounded-xl bg-black/80 hover:bg-[#E50914] text-white border border-zinc-700/80 hover:border-[#E50914] font-mono text-xs font-bold flex items-center gap-2 backdrop-blur-md shadow-2xl transition-all cursor-pointer group"
-          title="Exit Fullscreen (ESC or F)"
-        >
-          <span>Exit Fullscreen (ESC)</span>
-        </button>
-      )}
       {/* Floating On-Screen HUD */}
       {hudMessage && (
         <div className="absolute top-4 left-4 z-30 rounded-xl bg-black/90 border border-zinc-700 px-3.5 py-1.5 font-mono text-xs font-bold text-white shadow-xl animate-in fade-in zoom-in-95">
