@@ -888,50 +888,7 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
     setIsFrameLoading(false);
   }, []);
 
-  // Volume Boost State: 100% to 300% (Studio Mixer, persisted in localStorage)
-  const [volumeBoost, setVolumeBoost] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("lantawon_volume_boost");
-        if (saved) {
-          const parsed = parseInt(saved, 10);
-          if (Number.isFinite(parsed) && parsed >= 100 && parsed <= 300) {
-            return parsed;
-          }
-        }
-      } catch {}
-    }
-    return 100;
-  });
 
-  const handleVolumeBoostChange = useCallback((boost: number) => {
-    const clamped = Math.max(100, Math.min(300, Math.round(boost)));
-    setVolumeBoost(clamped);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("lantawon_volume_boost", String(clamped));
-      } catch {}
-    }
-  }, []);
-
-  const handleCycleVolumeBoost = useCallback(() => {
-    setVolumeBoost((prev) => {
-      const next = prev === 100 ? 150 : prev === 150 ? 200 : prev === 200 ? 300 : 100;
-      audioFX.playClick();
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("lantawon_volume_boost", String(next));
-        } catch {}
-      }
-      showToast(
-        next > 100
-          ? `🔊 Volume Boost: ${next}% active (Tip: maximize video player volume for best effect)`
-          : "🔉 Volume: Normal (100%)",
-        next > 100 ? "success" : "info"
-      );
-      return next;
-    });
-  }, [showToast]);
 
   return (
     <div className="min-h-screen bg-[#111112] text-zinc-100 flex flex-col selection:bg-[#E50914] selection:text-white">
@@ -982,9 +939,6 @@ function WatchPageContent({ mediaId }: { mediaId: string }) {
             onToggleTheaterMode={handleToggleTheaterMode}
             dataUsedMb={dataUsedMb}
             showToast={showToast}
-            volumeBoost={volumeBoost}
-            onCycleVolumeBoost={handleCycleVolumeBoost}
-            onVolumeBoostChange={handleVolumeBoostChange}
             onBack={() => setIsPlaying(false)}
           />
 

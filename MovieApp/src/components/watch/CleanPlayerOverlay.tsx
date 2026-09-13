@@ -23,7 +23,6 @@ import { STREAM_SERVERS, getStreamingServersFor } from "@/lib/constants/streamin
 import { useAuth } from "@/context/AuthContext";
 import { GuestTimerService } from "@/lib/services/guest-timer-service";
 import { formatDataSizeMb } from "@/lib/utils/formatters";
-import { VolumeMixerPopover } from "./VolumeMixerPopover";
 
 interface CleanPlayerOverlayProps {
   displayTitle: string;
@@ -43,12 +42,6 @@ interface CleanPlayerOverlayProps {
   // Seeking & Volume HUDs triggered by keyboard
   seekDeltaHUD?: { delta: number; targetTime: number } | null;
   volumeHUD?: number | null;
-  volumeBoost?: number;
-  onCycleVolumeBoost?: () => void;
-  onVolumeBoostChange?: (boost: number) => void;
-  isTabAudioHooked?: boolean;
-  onToggleTabAudioHook?: () => void;
-  isTabAudioSupported?: boolean;
   onBack?: () => void;
 }
 
@@ -81,20 +74,12 @@ export function CleanPlayerOverlay({
   dataUsedMb = 0,
   seekDeltaHUD,
   volumeHUD,
-  volumeBoost = 100,
-  onCycleVolumeBoost,
-  onVolumeBoostChange,
-  isTabAudioHooked = false,
-  onToggleTabAudioHook,
-  isTabAudioSupported = true,
   onBack,
 }: CleanPlayerOverlayProps) {
   const router = useRouter();
   const { user } = useAuth();
   const isGuest = !user?.isLoggedIn || user?.role === "guest";
   const showTrialTimer = isGuest;
-  const [isMixerOpen, setIsMixerOpen] = useState(false);
-  const mixerTriggerRef = useRef<HTMLDivElement>(null);
 
   const [guestRemainingSeconds, setGuestRemainingSeconds] = useState(() => {
     return GuestTimerService.getTimerData().remainingSeconds;
@@ -136,13 +121,13 @@ export function CleanPlayerOverlay({
     setAreControlsVisible(true);
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
 
-    // Keep visible if dropdown or episodes modal or mixer is open
-    if (isServerMenuOpen || isEpisodesModalOpen || isMixerOpen) return;
+    // Keep visible if dropdown or episodes modal is open
+    if (isServerMenuOpen || isEpisodesModalOpen) return;
 
     hideTimeoutRef.current = setTimeout(() => {
       setAreControlsVisible(false);
     }, 7000);
-  }, [isServerMenuOpen, isEpisodesModalOpen, isMixerOpen]);
+  }, [isServerMenuOpen, isEpisodesModalOpen]);
 
   const handleBackAction = useCallback(() => {
     audioFX.playClick();
@@ -192,7 +177,7 @@ export function CleanPlayerOverlay({
   const serverDisplayName =
     currentServers.find((s) => s.id === activeServer)?.name.split("(")[0]?.trim() || "Server 1";
 
-  const isHudVisible = areControlsVisible || isServerMenuOpen || isEpisodesModalOpen || isMixerOpen;
+  const isHudVisible = areControlsVisible || isServerMenuOpen || isEpisodesModalOpen;
 
   return (
     <div
@@ -325,45 +310,7 @@ export function CleanPlayerOverlay({
             )}
           </div>
 
-          {/* Studio Audio Mixer Volume Boost Control */}
-          {(onVolumeBoostChange || onCycleVolumeBoost) && (
-            <div ref={mixerTriggerRef} className="relative shrink-0 pointer-events-auto">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  audioFX.playClick();
-                  setIsMixerOpen((prev) => !prev);
-                }}
-                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border backdrop-blur-md text-[10px] sm:text-xs font-bold font-mono transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95 shrink-0 ${
-                  volumeBoost > 100
-                    ? "bg-amber-500/25 border-amber-400 text-amber-300 shadow-amber-500/25 ring-1 ring-amber-400/50"
-                    : "bg-black/60 hover:bg-white/10 border-white/15 text-zinc-300 hover:text-white"
-                }`}
-                aria-label="Studio Audio Mixer"
-                title="Open Studio Audio Mixer (Fader up to 300% Gain)"
-              >
-                <Volume2
-                  className={`h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 ${
-                    volumeBoost > 100 ? "text-amber-400 animate-pulse" : "text-zinc-400"
-                  }`}
-                />
-                <span>{volumeBoost > 100 ? `${volumeBoost}% Boost` : "Mixer"}</span>
-              </button>
 
-              <VolumeMixerPopover
-                triggerRef={mixerTriggerRef}
-                volumeBoost={volumeBoost}
-                onVolumeBoostChange={onVolumeBoostChange || ((boost: number) => onCycleVolumeBoost?.())}
-                isOpen={isMixerOpen}
-                onClose={() => setIsMixerOpen(false)}
-                isPlaying={isPlaying}
-                isTabAudioHooked={isTabAudioHooked}
-                onToggleTabAudioHook={onToggleTabAudioHook}
-                isTabAudioSupported={isTabAudioSupported}
-              />
-            </div>
-          )}
 
           {/* 3. Data / MB Consumed Badge */}
           <div

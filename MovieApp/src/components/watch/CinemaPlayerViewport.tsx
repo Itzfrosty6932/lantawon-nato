@@ -55,9 +55,6 @@ interface CinemaPlayerViewportProps {
   dataUsedMb?: number;
   onSubtitleFile?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   showToast: (message: string, type?: "info" | "success" | "error") => void;
-  volumeBoost?: number;
-  onCycleVolumeBoost?: () => void;
-  onVolumeBoostChange?: (boost: number) => void;
   onBack?: () => void;
 }
 
@@ -86,9 +83,6 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
   tvDetails = null,
   seasonEpisodes = [],
   dataUsedMb = 0,
-  volumeBoost = 100,
-  onCycleVolumeBoost,
-  onVolumeBoostChange,
   onSelectSeason,
   onSelectEpisode,
   onNextEpisode,
@@ -330,187 +324,20 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
     isTv && (seasonEpisodes.some((ep) => ep.episode_number === currentEpisode + 1) || onNextEpisode)
   );
 
-  // Web Audio API Gain Node & Dynamics Compressor for studio volume boosting (>100%)
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const compressorRef = useRef<DynamicsCompressorNode | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  // Tab Audio Hook (captures tab audio to bypass cross-origin iframe locks for 300% boost)
-  const tabMediaStreamRef = useRef<MediaStream | null>(null);
-  const tabStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const [isTabAudioHooked, setIsTabAudioHooked] = useState(false);
-  const isTabAudioSupported = typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getDisplayMedia);
-
-  const handleToggleTabAudioHook = async () => {
-    // If currently hooked, disconnect cleanly
-    if (isTabAudioHooked) {
-      if (tabMediaStreamRef.current) {
-        tabMediaStreamRef.current.getTracks().forEach((t) => t.stop());
-        tabMediaStreamRef.current = null;
-      }
-      if (tabStreamSourceRef.current) {
-        try {
-          tabStreamSourceRef.current.disconnect();
-        } catch {}
-        tabStreamSourceRef.current = null;
-      }
-      setIsTabAudioHooked(false);
-      audioFX.playPop();
-      showToast("Tab Audio Hook disconnected", "info");
-      return;
-    }
-
-    // Connect Tab Audio Hook
-    try {
-      audioFX.playClick();
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextClass) {
-        showToast("Web Audio API not supported on this browser", "error");
-        return;
-      }
-
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContextClass();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === "suspended") {
-        await ctx.resume();
-      }
-
-      if (!gainNodeRef.current) {
-        gainNodeRef.current = ctx.createGain();
-      }
-      if (!compressorRef.current) {
-        const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-24, ctx.currentTime);
-        compressor.knee.setValueAtTime(30, ctx.currentTime);
-        compressor.ratio.setValueAtTime(12, ctx.currentTime);
-        compressor.attack.setValueAtTime(0.003, ctx.currentTime);
-        compressor.release.setValueAtTime(0.25, ctx.currentTime);
-        compressorRef.current = compressor;
-
-        gainNodeRef.current.connect(compressor);
-        compressor.connect(ctx.destination);
-      }
-
-      const gainValue = Math.max(1, volumeBoost / 100);
-      gainNodeRef.current.gain.setValueAtTime(gainValue, ctx.currentTime);
-
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-        preferCurrentTab: true,
-        selfBrowserSurface: "include",
-        systemAudio: "include",
-      } as any);
-
-      const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        stream.getTracks().forEach((t) => t.stop());
-        showToast("Please make sure 'Also share tab audio' is checked", "error");
-        return;
-      }
-
-      // Stop video tracks immediately so zero GPU/CPU encoding is used
-      stream.getVideoTracks().forEach((t) => t.stop());
-
-      audioTracks[0].onended = () => {
-        setIsTabAudioHooked(false);
-        tabMediaStreamRef.current = null;
-        tabStreamSourceRef.current = null;
-        showToast("Tab Audio Hook ended", "info");
-      };
-
-      tabMediaStreamRef.current = stream;
-      const streamSource = ctx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
-      streamSource.connect(gainNodeRef.current);
-      tabStreamSourceRef.current = streamSource;
-
-      setIsTabAudioHooked(true);
-      audioFX.playSuccess();
-      showToast("⚡ Tab Audio Hook active! 300% volume boost engaged for all mirrors.", "success");
-    } catch (err: any) {
-      if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
-        return;
-      }
-      console.warn("[TabAudioHook error]:", err);
-      showToast("Could not hook tab audio: " + (err?.message || "Permission denied"), "error");
-    }
-  };
-
-  // Cleanup audio tracks on unmount
   useEffect(() => {
-    return () => {
-      if (tabMediaStreamRef.current) {
-        tabMediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-        audioCtxRef.current.close().catch(() => {});
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    // If AudioContext exists and is suspended, resume it on any volume/boost adjustment
-    if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
-      audioCtxRef.current.resume().catch(() => {});
-    }
-
-    if (gainNodeRef.current && audioCtxRef.current) {
-      const gainValue = Math.max(1, volumeBoost / 100);
-      gainNodeRef.current.gain.setValueAtTime(gainValue, audioCtxRef.current.currentTime);
-    }
-
     if (localVideoRef.current) {
       try {
-        if (!audioCtxRef.current) {
-          const AudioContextClass =
-            window.AudioContext ||
-            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-          if (AudioContextClass) {
-            const ctx = new AudioContextClass();
-            // Gain pre-amp node
-            const gainNode = ctx.createGain();
-            // Dynamics Compressor (mastering limiter to prevent clipping and maximize loudness)
-            const compressor = ctx.createDynamicsCompressor();
-            compressor.threshold.setValueAtTime(-24, ctx.currentTime);
-            compressor.knee.setValueAtTime(30, ctx.currentTime);
-            compressor.ratio.setValueAtTime(12, ctx.currentTime);
-            compressor.attack.setValueAtTime(0.003, ctx.currentTime);
-            compressor.release.setValueAtTime(0.25, ctx.currentTime);
-
-            const source = ctx.createMediaElementSource(localVideoRef.current);
-            source.connect(gainNode);
-            gainNode.connect(compressor);
-            compressor.connect(ctx.destination);
-
-            audioCtxRef.current = ctx;
-            gainNodeRef.current = gainNode;
-            compressorRef.current = compressor;
-
-            if (ctx.state === "suspended") {
-              ctx.resume().catch(() => {});
-            }
-          }
-        }
-
-        if (gainNodeRef.current && audioCtxRef.current) {
-          const gainValue = Math.max(1, volumeBoost / 100);
-          gainNodeRef.current.gain.setValueAtTime(gainValue, audioCtxRef.current.currentTime);
-        }
-      } catch {
-        // Source already connected or cross-origin
-      }
+        localVideoRef.current.volume = volume;
+      } catch {}
     }
 
-    // Cross-origin iframe postMessage volume & boost sync
+    // Cross-origin iframe postMessage volume sync
     try {
       const win = iframeRef.current?.contentWindow;
       if (win) {
-        const scaledVol = Math.min(100, Math.round(volume * (volumeBoost / 100) * 100));
+        const scaledVol = Math.min(100, Math.round(volume * 100));
         win.postMessage({ type: "setVolume", volume: scaledVol }, "*");
         win.postMessage({ type: "SET_VOLUME", volume: scaledVol }, "*");
         win.postMessage({ type: "PLAYER_VOLUME", volume: scaledVol / 100 }, "*");
@@ -520,7 +347,7 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
         win.postMessage(JSON.stringify({ event: "command", func: "setVolume", args: [scaledVol] }), "*");
       }
     } catch {}
-  }, [volumeBoost, volume, localVideoRef]);
+  }, [volume, localVideoRef]);
 
   return (
     <div ref={videoContainerRef} className={containerClasses}>
@@ -542,12 +369,6 @@ export const CinemaPlayerViewport = React.memo(function CinemaPlayerViewport({
         dataUsedMb={dataUsedMb}
         seekDeltaHUD={seekDeltaHUD}
         volumeHUD={volumeHUD}
-        volumeBoost={volumeBoost}
-        onCycleVolumeBoost={onCycleVolumeBoost}
-        onVolumeBoostChange={onVolumeBoostChange}
-        isTabAudioHooked={isTabAudioHooked}
-        onToggleTabAudioHook={handleToggleTabAudioHook}
-        isTabAudioSupported={isTabAudioSupported}
         onBack={onBack}
       />
 
