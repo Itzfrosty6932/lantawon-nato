@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 
 export interface UserDevice {
   id: string;
+  device_fingerprint?: string;
   device_name: string;
   browser?: string;
   os?: string;
@@ -10,6 +11,7 @@ export interface UserDevice {
   is_active: boolean;
   last_active_at: string;
   created_at: string;
+  blocked_at?: string | null;
 }
 
 const DEVICE_STORAGE_KEY = "lantawon_device_fp";
@@ -202,6 +204,32 @@ export async function revokeDevice(deviceId: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error("[revokeDevice]", err);
+    return false;
+  }
+}
+
+/**
+ * Revoke all devices except the current one
+ */
+export async function revokeAllOtherDevices(): Promise<boolean> {
+  try {
+    const currentFp = generateDeviceFingerprint();
+    const res = await fetch(
+      `/api/auth/device?revoke_others=true&current_fp=${encodeURIComponent(currentFp)}`,
+      {
+        method: "DELETE",
+        cache: "no-store",
+      }
+    );
+
+    if (!res.ok) {
+      console.warn("[revokeAllOtherDevices] Server responded with status:", res.status);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[revokeAllOtherDevices]", err);
     return false;
   }
 }

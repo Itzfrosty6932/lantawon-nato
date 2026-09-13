@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
     if (!fingerprint) {
       const { data: devices, error } = await admin
         .from("user_devices")
-        .select("id, device_name, browser, os, ip_address, is_active, last_active_at, created_at, blocked_at")
+        .select("id, device_fingerprint, device_name, browser, os, ip_address, is_active, last_active_at, created_at, blocked_at")
         .eq("user_id", identity.userId)
         .order("last_active_at", { ascending: false });
 
@@ -179,17 +179,43 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const deviceId = searchParams.get("id")?.trim();
+    const revokeOthers = searchParams.get("revoke_others") === "true";
+    const currentFp = searchParams.get("current_fp")?.trim();
+
+    const admin = createAdminSupabaseClient();
+    const nowIso = new Date().toISOString();
+
+    if (revokeOthers) {
+      let query = admin
+        .from("user_devices")
+        .update({
+          is_active: false,
+          blocked_at: nowIso,
+        })
+        .eq("user_id", identity.userId);
+
+      if (currentFp) {
+        query = query.neq("device_fingerprint", currentFp);
+      }
+
+      const { error } = await query;
+      if (error) {
+        console.error("[/api/auth/device DELETE revokeOthers error]:", error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, revokedOthers: true });
+    }
 
     if (!deviceId) {
       return NextResponse.json({ error: "Device ID required" }, { status: 400 });
     }
 
-    const admin = createAdminSupabaseClient();
     const { error } = await admin
       .from("user_devices")
       .update({
         is_active: false,
-        blocked_at: new Date().toISOString(),
+        blocked_at: nowIso,
       })
       .eq("id", deviceId)
       .eq("user_id", identity.userId);
