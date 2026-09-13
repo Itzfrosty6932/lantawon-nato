@@ -94,6 +94,7 @@ export function CleanPlayerOverlay({
   const isGuest = !user?.isLoggedIn || user?.role === "guest";
   const showTrialTimer = isGuest;
   const [isMixerOpen, setIsMixerOpen] = useState(false);
+  const mixerTriggerRef = useRef<HTMLDivElement>(null);
 
   const [guestRemainingSeconds, setGuestRemainingSeconds] = useState(() => {
     return GuestTimerService.getTimerData().remainingSeconds;
@@ -135,13 +136,13 @@ export function CleanPlayerOverlay({
     setAreControlsVisible(true);
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
 
-    // Keep visible if dropdown or episodes modal is open
-    if (isServerMenuOpen || isEpisodesModalOpen) return;
+    // Keep visible if dropdown or episodes modal or mixer is open
+    if (isServerMenuOpen || isEpisodesModalOpen || isMixerOpen) return;
 
     hideTimeoutRef.current = setTimeout(() => {
       setAreControlsVisible(false);
     }, 7000);
-  }, [isServerMenuOpen, isEpisodesModalOpen]);
+  }, [isServerMenuOpen, isEpisodesModalOpen, isMixerOpen]);
 
   const handleBackAction = useCallback(() => {
     audioFX.playClick();
@@ -191,7 +192,7 @@ export function CleanPlayerOverlay({
   const serverDisplayName =
     currentServers.find((s) => s.id === activeServer)?.name.split("(")[0]?.trim() || "Server 1";
 
-  const isHudVisible = areControlsVisible || isServerMenuOpen || isEpisodesModalOpen;
+  const isHudVisible = areControlsVisible || isServerMenuOpen || isEpisodesModalOpen || isMixerOpen;
 
   return (
     <div
@@ -229,7 +230,7 @@ export function CleanPlayerOverlay({
 
         {/* Right: Episodes Switcher, Server Dropdown, Volume Boost, Data MB Usage, and Guest Timer (Responsive Micro-Pills) */}
         <div
-          className="flex items-center gap-1 sm:gap-2 shrink-0 pointer-events-auto flex-nowrap overflow-x-auto max-w-[calc(100vw-50px)] sm:max-w-none scrollbar-none py-1"
+          className="flex items-center gap-1 sm:gap-2 shrink-0 pointer-events-auto flex-nowrap overflow-visible py-1"
         >
           {/* 1. Episodes Button (For TV Series & Anime) */}
           {isTvSeries && onToggleEpisodesModal && (
@@ -326,7 +327,7 @@ export function CleanPlayerOverlay({
 
           {/* Studio Audio Mixer Volume Boost Control */}
           {(onVolumeBoostChange || onCycleVolumeBoost) && (
-            <div className="relative">
+            <div ref={mixerTriggerRef} className="relative shrink-0 pointer-events-auto">
               <button
                 type="button"
                 onClick={(e) => {
@@ -350,18 +351,17 @@ export function CleanPlayerOverlay({
                 <span>{volumeBoost > 100 ? `${volumeBoost}% Boost` : "Mixer"}</span>
               </button>
 
-              {onVolumeBoostChange && (
-                <VolumeMixerPopover
-                  volumeBoost={volumeBoost}
-                  onVolumeBoostChange={onVolumeBoostChange}
-                  isOpen={isMixerOpen}
-                  onClose={() => setIsMixerOpen(false)}
-                  isPlaying={isPlaying}
-                  isTabAudioHooked={isTabAudioHooked}
-                  onToggleTabAudioHook={onToggleTabAudioHook}
-                  isTabAudioSupported={isTabAudioSupported}
-                />
-              )}
+              <VolumeMixerPopover
+                triggerRef={mixerTriggerRef}
+                volumeBoost={volumeBoost}
+                onVolumeBoostChange={onVolumeBoostChange || ((boost: number) => onCycleVolumeBoost?.())}
+                isOpen={isMixerOpen}
+                onClose={() => setIsMixerOpen(false)}
+                isPlaying={isPlaying}
+                isTabAudioHooked={isTabAudioHooked}
+                onToggleTabAudioHook={onToggleTabAudioHook}
+                isTabAudioSupported={isTabAudioSupported}
+              />
             </div>
           )}
 

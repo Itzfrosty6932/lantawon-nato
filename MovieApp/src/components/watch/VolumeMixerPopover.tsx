@@ -13,6 +13,7 @@ interface VolumeMixerPopoverProps {
   isTabAudioHooked?: boolean;
   onToggleTabAudioHook?: () => void;
   isTabAudioSupported?: boolean;
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
 export function VolumeMixerPopover({
@@ -24,23 +25,32 @@ export function VolumeMixerPopover({
   isTabAudioHooked = false,
   onToggleTabAudioHook,
   isTabAudioSupported = true,
+  triggerRef,
 }: VolumeMixerPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const [isPointerActive, setIsPointerActive] = useState(false);
 
-  // Close when clicking outside
+  // Close when clicking outside, ignoring clicks on the trigger button itself
   useEffect(() => {
     if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (triggerRef?.current && triggerRef.current.contains(target)) {
+        return;
+      }
+      if (containerRef.current && !containerRef.current.contains(target)) {
         onClose();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen, onClose]);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [isOpen, onClose, triggerRef]);
 
   if (!isOpen) return null;
 
@@ -111,7 +121,9 @@ export function VolumeMixerPopover({
     <div
       ref={containerRef}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-12 sm:top-14 right-0 z-50 w-72 sm:w-84 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 backdrop-blur-2xl shadow-2xl p-4 sm:p-5 text-white animate-in zoom-in-95 duration-150 select-none shadow-black/90"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      className="fixed top-16 left-1/2 -translate-x-1/2 w-[calc(100vw-1.5rem)] max-w-xs sm:max-w-none sm:absolute sm:top-12 sm:right-0 sm:left-auto sm:translate-x-0 sm:w-84 z-[9999] rounded-2xl bg-zinc-950/98 border border-zinc-700/80 backdrop-blur-2xl shadow-2xl p-4 sm:p-5 text-white animate-in zoom-in-95 duration-150 select-none shadow-black/90 pointer-events-auto"
     >
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-3">
