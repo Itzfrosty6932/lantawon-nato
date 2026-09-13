@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Volume2, VolumeX, Sparkles, X, Sliders, Zap, RotateCcw } from "lucide-react";
+import { Sliders, X, RotateCcw, Zap } from "lucide-react";
 import { audioFX } from "@/lib/audio/audio-fx";
 
 interface VolumeMixerPopoverProps {
@@ -20,7 +20,9 @@ export function VolumeMixerPopover({
   isPlaying = true,
 }: VolumeMixerPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const [isPointerActive, setIsPointerActive] = useState(false);
 
   // Close when clicking outside
   useEffect(() => {
@@ -55,9 +57,35 @@ export function VolumeMixerPopover({
     { label: "300%", sub: "MAX", value: 300 },
   ];
 
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    onVolumeBoostChange(val);
+  const updateFromPointer = (clientY: number) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    // 0 at bottom, 1 at top
+    const ratio = Math.max(0, Math.min(1, (rect.bottom - clientY) / rect.height));
+    const rawVal = 100 + ratio * 200;
+    const stepped = Math.round(rawVal / 5) * 5;
+    onVolumeBoostChange(Math.max(100, Math.min(300, stepped)));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    isDraggingRef.current = true;
+    setIsPointerActive(true);
+    updateFromPointer(e.clientY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    e.preventDefault();
+    updateFromPointer(e.clientY);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsPointerActive(false);
+    audioFX.playPop();
   };
 
   const handlePresetClick = (val: number) => {
@@ -70,21 +98,24 @@ export function VolumeMixerPopover({
     onVolumeBoostChange(100);
   };
 
+  // Percentage for fader knob positioning
+  const faderPercentage = ((volumeBoost - 100) / 200) * 100;
+
   return (
     <div
       ref={containerRef}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-12 sm:top-14 right-0 z-50 w-72 sm:w-80 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 backdrop-blur-2xl shadow-2xl p-4 sm:p-5 text-white animate-in zoom-in-95 duration-150 select-none shadow-black/90"
+      className="absolute top-12 sm:top-14 right-0 z-50 w-72 sm:w-84 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 backdrop-blur-2xl shadow-2xl p-4 sm:p-5 text-white animate-in zoom-in-95 duration-150 select-none shadow-black/90"
     >
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-3">
         <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg ${isBoosted ? "bg-amber-500/20 text-amber-400" : "bg-zinc-800 text-zinc-400"}`}>
+          <div className={`p-1.5 rounded-lg ${isBoosted ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-400/40" : "bg-zinc-800 text-zinc-400"}`}>
             <Sliders className="h-4 w-4" />
           </div>
           <div>
             <h4 className="text-xs font-bold font-mono tracking-wider uppercase text-zinc-200">
-              Audio Pre-Amp Mixer
+              Studio Pre-Amp Mixer
             </h4>
             <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
               <span>Gain:</span>
@@ -101,7 +132,7 @@ export function VolumeMixerPopover({
             audioFX.playClick();
             onClose();
           }}
-          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors"
+          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
           aria-label="Close mixer"
         >
           <X className="h-4 w-4" />
@@ -109,13 +140,13 @@ export function VolumeMixerPopover({
       </div>
 
       {/* ─── MAIN CONSOLE: VU METER + VERTICAL FADER ─── */}
-      <div className="flex items-center justify-between gap-4 py-2 px-2 bg-black/40 rounded-xl border border-zinc-800/80 mb-3.5">
+      <div className="flex items-center justify-between gap-4 py-2.5 px-3 bg-black/50 rounded-xl border border-zinc-800/90 mb-3.5">
         {/* Stereo VU Meter Simulation */}
         <div className="flex flex-col items-center gap-1.5 px-2">
           <span className="text-[9px] font-mono font-bold text-zinc-400 tracking-wider">VU METERS</span>
-          <div className="flex gap-2 h-36 sm:h-40 items-end py-1">
+          <div className="flex gap-2 h-40 items-end py-1">
             {/* Left Channel */}
-            <div className="w-3 h-full flex flex-col-reverse justify-start gap-0.5 p-0.5 rounded bg-zinc-900 border border-zinc-800">
+            <div className="w-3.5 h-full flex flex-col-reverse justify-start gap-1 p-0.5 rounded bg-zinc-950 border border-zinc-800">
               {Array.from({ length: 10 }).map((_, i) => {
                 const isLit = i < activeSegments;
                 let color = "bg-emerald-500";
@@ -127,7 +158,7 @@ export function VolumeMixerPopover({
                     className={`w-full h-2.5 rounded-xs transition-opacity duration-75 ${
                       isLit
                         ? `${color} opacity-100 shadow-[0_0_4px_currentColor]`
-                        : "bg-zinc-800/40 opacity-30"
+                        : "bg-zinc-800/40 opacity-20"
                     }`}
                   />
                 );
@@ -135,7 +166,7 @@ export function VolumeMixerPopover({
             </div>
 
             {/* Right Channel */}
-            <div className="w-3 h-full flex flex-col-reverse justify-start gap-0.5 p-0.5 rounded bg-zinc-900 border border-zinc-800">
+            <div className="w-3.5 h-full flex flex-col-reverse justify-start gap-1 p-0.5 rounded bg-zinc-950 border border-zinc-800">
               {Array.from({ length: 10 }).map((_, i) => {
                 const isLit = i < activeSegments;
                 let color = "bg-emerald-500";
@@ -147,51 +178,76 @@ export function VolumeMixerPopover({
                     className={`w-full h-2.5 rounded-xs transition-opacity duration-75 ${
                       isLit
                         ? `${color} opacity-100 shadow-[0_0_4px_currentColor]`
-                        : "bg-zinc-800/40 opacity-30"
+                        : "bg-zinc-800/40 opacity-20"
                     }`}
                   />
                 );
               })}
             </div>
           </div>
-          <div className="flex gap-2 text-[8px] font-mono text-zinc-400 font-bold">
+          <div className="flex gap-3 text-[8px] font-mono text-zinc-400 font-bold">
             <span>L</span>
             <span>R</span>
           </div>
         </div>
 
-        {/* ─── VERTICAL FADER CHANNEL ─── */}
-        <div className="flex-1 flex flex-col items-center justify-between h-36 sm:h-40 relative px-3">
-          {/* Scale Notches */}
+        {/* ─── TACTILE VERTICAL FADER CHANNEL ─── */}
+        <div className="flex-1 flex flex-col items-center justify-between h-44 relative px-2">
+          {/* Top Scale Notch */}
           <div className="w-full flex items-center justify-between text-[10px] font-mono text-zinc-400">
             <span className="text-rose-400 font-bold">300% (MAX)</span>
             <span className="text-[9px] text-zinc-400">+9.5 dB</span>
           </div>
 
-          <div className="relative w-full flex-1 flex items-center justify-center my-2">
-            {/* Custom Vertical Slider */}
-            <input
-              type="range"
-              min="100"
-              max="300"
-              step="5"
-              value={volumeBoost}
-              onChange={handleSliderChange}
-              onMouseDown={() => setIsDragging(true)}
-              onMouseUp={() => {
-                setIsDragging(false);
-                audioFX.playPop();
+          {/* Interactive Fader Rail */}
+          <div
+            ref={trackRef}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className="relative w-full h-28 my-1 flex items-center justify-center cursor-ns-resize touch-none"
+          >
+            {/* Recessed Center Track Slot */}
+            <div className="w-2 h-full bg-zinc-900 rounded-full border border-zinc-800 relative overflow-hidden shadow-inner">
+              {/* Active fill from bottom */}
+              <div
+                className={`absolute bottom-0 left-0 right-0 rounded-full transition-all ${
+                  isBoosted ? "bg-amber-500" : "bg-emerald-500"
+                }`}
+                style={{ height: `${faderPercentage}%` }}
+              />
+            </div>
+
+            {/* Tick Mark Lines */}
+            <div className="absolute left-6 inset-y-0 flex flex-col justify-between py-1 pointer-events-none opacity-40">
+              <span className="text-[8px] font-mono text-zinc-400">- +6dB</span>
+              <span className="text-[8px] font-mono text-zinc-400">- +3dB</span>
+              <span className="text-[8px] font-mono text-zinc-400">- 0dB</span>
+            </div>
+
+            {/* Studio Fader Knob Handle */}
+            <div
+              className={`absolute left-1/2 -translate-x-1/2 w-14 sm:w-16 h-7 rounded-lg border flex flex-col items-center justify-center transition-transform ${
+                isPointerActive ? "scale-105 shadow-amber-500/30" : "hover:scale-102"
+              } bg-gradient-to-b from-zinc-600 via-zinc-700 to-zinc-800 border-zinc-500/60 shadow-xl shadow-black/80 pointer-events-none`}
+              style={{
+                bottom: `calc(${faderPercentage}% - 14px)`,
               }}
-              onTouchStart={() => setIsDragging(true)}
-              onTouchEnd={() => {
-                setIsDragging(false);
-                audioFX.playPop();
-              }}
-              className="w-28 sm:w-32 h-3 appearance-none bg-zinc-800 rounded-full outline-none cursor-pointer -rotate-90 origin-center accent-amber-500 hover:accent-amber-400"
-              aria-label="Volume Boost Slider"
-            />
+            >
+              {/* Grip Ridges */}
+              <div className="w-8 h-0.5 bg-zinc-800 mb-0.5 rounded-full" />
+              {/* Glowing Center Position Line */}
+              <div
+                className={`w-10 h-0.5 rounded-full transition-colors ${
+                  isBoosted ? "bg-amber-400 shadow-[0_0_6px_#f59e0b]" : "bg-white"
+                }`}
+              />
+              <div className="w-8 h-0.5 bg-zinc-800 mt-0.5 rounded-full" />
+            </div>
           </div>
 
+          {/* Bottom Scale Notch */}
           <div className="w-full flex items-center justify-between text-[10px] font-mono text-zinc-400">
             <span className="text-zinc-300 font-medium">100% (Unity)</span>
             <span className="text-[9px] text-zinc-400">0.0 dB</span>
@@ -208,7 +264,7 @@ export function VolumeMixerPopover({
               key={p.value}
               type="button"
               onClick={() => handlePresetClick(p.value)}
-              className={`py-1.5 px-1 rounded-xl text-center font-mono transition-all border ${
+              className={`py-1.5 px-1 rounded-xl text-center font-mono transition-all border cursor-pointer ${
                 isSelected
                   ? "bg-amber-500/25 border-amber-400 text-amber-300 font-bold shadow-md shadow-amber-500/15"
                   : "bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white"
