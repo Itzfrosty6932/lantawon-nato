@@ -46,6 +46,9 @@ interface CleanPlayerOverlayProps {
   volumeBoost?: number;
   onCycleVolumeBoost?: () => void;
   onVolumeBoostChange?: (boost: number) => void;
+  isTabAudioHooked?: boolean;
+  onToggleTabAudioHook?: () => void;
+  isTabAudioSupported?: boolean;
   onBack?: () => void;
 }
 
@@ -81,6 +84,9 @@ export function CleanPlayerOverlay({
   volumeBoost = 100,
   onCycleVolumeBoost,
   onVolumeBoostChange,
+  isTabAudioHooked = false,
+  onToggleTabAudioHook,
+  isTabAudioSupported = true,
   onBack,
 }: CleanPlayerOverlayProps) {
   const router = useRouter();
@@ -351,6 +357,9 @@ export function CleanPlayerOverlay({
                   isOpen={isMixerOpen}
                   onClose={() => setIsMixerOpen(false)}
                   isPlaying={isPlaying}
+                  isTabAudioHooked={isTabAudioHooked}
+                  onToggleTabAudioHook={onToggleTabAudioHook}
+                  isTabAudioSupported={isTabAudioSupported}
                 />
               )}
             </div>

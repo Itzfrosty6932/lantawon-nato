@@ -10,6 +10,9 @@ interface VolumeMixerPopoverProps {
   isOpen: boolean;
   onClose: () => void;
   isPlaying?: boolean;
+  isTabAudioHooked?: boolean;
+  onToggleTabAudioHook?: () => void;
+  isTabAudioSupported?: boolean;
 }
 
 export function VolumeMixerPopover({
@@ -18,6 +21,9 @@ export function VolumeMixerPopover({
   isOpen,
   onClose,
   isPlaying = true,
+  isTabAudioHooked = false,
+  onToggleTabAudioHook,
+  isTabAudioSupported = true,
 }: VolumeMixerPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -276,6 +282,43 @@ export function VolumeMixerPopover({
           );
         })}
       </div>
+
+      {/* ─── TAB AUDIO BYPASS HOOK (FOR 300% MIRRORS) ─── */}
+      {isTabAudioSupported && onToggleTabAudioHook && (
+        <div className="mb-3 p-2.5 rounded-xl bg-black/60 border border-zinc-800 text-[11px]">
+          {isTabAudioHooked ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span className="font-bold text-emerald-300 truncate">
+                  Tab Audio Hook Active (300% Boosted)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleTabAudioHook}
+                className="px-2 py-0.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[10px] font-mono shrink-0 cursor-pointer transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggleTabAudioHook}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-[11px] transition-all cursor-pointer shadow-sm active:scale-98"
+            >
+              <Zap className="h-3.5 w-3.5 fill-amber-400" />
+              <span>Connect Tab Audio (300% Boost for Mirrors)</span>
+            </button>
+          )}
+          <p className="text-[9px] text-zinc-400 mt-1 leading-tight">
+            {isTabAudioHooked
+              ? "All mirror audio routed through Web Audio Gain & Limiter."
+              : "Bypasses browser cross-origin limits to amplify stream up to 3x louder."}
+          </p>
+        </div>
+      )}
 
       {/* ─── FOOTER & RESET ─── */}
       <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[10px] text-zinc-400 font-mono">
