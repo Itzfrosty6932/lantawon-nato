@@ -56,3 +56,12 @@ npm run dev
 npm run build
 npm run start
 ```
+
+---
+
+## ⚡ Deployment & Performance Optimization Notes
+- **Vercel Edge Caching**: API routes are configured with CDN caching headers to drastically reduce serverless function invocations.
+- **Lazy Mirror Probing**: Video servers are probed on-demand rather than eagerly on page load.
+- **Image Optimization**: Static media bypasses serverless image pipelines to keep Vercel Hobby quota usage at 0%.
+- **Player Fullscreen**: Native container wrapping both viewport and HUD controls for consistent playback on all viewports.
+
